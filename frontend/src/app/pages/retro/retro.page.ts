@@ -94,6 +94,10 @@ export class RetroPage implements OnInit, OnDestroy {
     socket.on('timer-updated', refresh);
     socket.on('action-created', refresh);
     socket.on('participant-joined', refresh);
+    socket.on('retro-deleted', () => {
+      const teamId = this.retro()?.teamId;
+      void this.router.navigate(teamId ? ['/teams', teamId] : ['/dashboard']);
+    });
   }
 
   ngOnDestroy() {
@@ -250,6 +254,25 @@ export class RetroPage implements OnInit, OnDestroy {
         }
       },
       error: (e) => this.error.set(e?.error?.message || 'No se pudo cambiar de fase'),
+    });
+  }
+
+  deleteRetro() {
+    const r = this.retro();
+    if (!r || !this.isFacilitator()) return;
+    if (
+      !confirm(
+        `¿Borrar la retrospectiva “${r.title}”? Esta acción no se puede deshacer.`,
+      )
+    ) {
+      return;
+    }
+    this.api.deleteRetro(r.id).subscribe({
+      next: () => {
+        void this.router.navigate(['/teams', r.teamId]);
+      },
+      error: (e) =>
+        this.error.set(e?.error?.message || 'No se pudo borrar la retrospectiva'),
     });
   }
 

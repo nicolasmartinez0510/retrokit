@@ -21,6 +21,7 @@ import {
   JoinRetroDto,
   RotiDto,
   TimerDto,
+  UpdateCardDto,
   UpdateSettingsDto,
   VoteDto,
 } from './dto/retros.dto';
@@ -46,6 +47,12 @@ export class RetrosController {
   @UseGuards(JwtAuthGuard)
   getOne(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.retros.getOne(user, id);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.retros.remove(user, id);
   }
 
   @Patch(':id/settings')
@@ -84,7 +91,7 @@ export class RetrosController {
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Param('cardId') cardId: string,
-    @Body() dto: CreateCardDto,
+    @Body() dto: UpdateCardDto,
   ) {
     return this.retros.updateCard(user, id, cardId, dto);
   }

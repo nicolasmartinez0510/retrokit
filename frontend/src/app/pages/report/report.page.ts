@@ -2,7 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
-import { RetroReport } from '../../core/models';
+import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
 
 @Component({
   selector: 'app-report-page',
@@ -54,6 +54,7 @@ import { RetroReport } from '../../core/models';
                 @if (a.owner) {
                   — {{ a.owner.name }}
                 }
+                <span class="badge">{{ statusLabel(a.status) }}</span>
               </li>
             } @empty {
               <li>Sin acciones</li>
@@ -98,6 +99,10 @@ export class ReportPage implements OnInit {
     return r.votes
       .filter((v) => (groupId ? v.groupId === groupId : v.cardId === cardId))
       .reduce((s, v) => s + v.count, 0);
+  }
+
+  statusLabel(status: keyof typeof ACTION_STATUS_LABELS) {
+    return ACTION_STATUS_LABELS[status];
   }
 
   print() {

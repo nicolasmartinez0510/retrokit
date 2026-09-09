@@ -36,8 +36,8 @@ export class UpdateActionDto {
   description?: string;
 
   @IsOptional()
-  @IsIn(['pending', 'doing', 'done'])
-  status?: 'pending' | 'doing' | 'done';
+  @IsIn(['pending', 'doing', 'done', 'unmet'])
+  status?: 'pending' | 'doing' | 'done' | 'unmet';
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null)

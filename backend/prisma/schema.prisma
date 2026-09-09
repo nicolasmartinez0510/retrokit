@@ -25,6 +25,7 @@ enum ActionStatus {
   pending
   doing
   done
+  unmet
 }
 
 model User {
@@ -143,7 +144,7 @@ model Card {
   retro       Retrospective @relation(fields: [retroId], references: [id], onDelete: Cascade)
   column      RetroColumn   @relation(fields: [columnId], references: [id], onDelete: Cascade)
   author      Participant   @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  group       CardGroup?    @relation(fields: [groupId], references: [id])
+  group       CardGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
   votes       Vote[]
 }
 

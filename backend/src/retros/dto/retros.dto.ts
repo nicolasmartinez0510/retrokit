@@ -98,6 +98,21 @@ export class CreateCardDto {
   isAnonymous?: boolean;
 }
 
+export class UpdateCardDto {
+  @IsOptional()
+  @IsString()
+  columnId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  content?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isAnonymous?: boolean;
+}
+
 export class GroupCardsDto {
   @IsString()
   @IsNotEmpty()

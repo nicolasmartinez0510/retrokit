@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
 
 @Component({
@@ -118,10 +119,21 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
           <h2>Historial</h2>
           <div class="retro-list">
             @for (r of t.retrospectives; track r.id) {
-              <a class="card retro-row" [routerLink]="['/retros', r.id]">
-                <strong>{{ r.title }}</strong>
-                <span class="badge">{{ phaseLabel(r.status) }}</span>
-              </a>
+              <div class="card retro-row">
+                <a [routerLink]="['/retros', r.id]">
+                  <strong>{{ r.title }}</strong>
+                  <span class="badge">{{ phaseLabel(r.status) }}</span>
+                </a>
+                @if (isFacilitator()) {
+                  <button
+                    type="button"
+                    class="btn-danger btn-sm"
+                    (click)="deleteRetro(r.id, r.title)"
+                  >
+                    Borrar
+                  </button>
+                }
+              </div>
             } @empty {
               <p class="empty-state">Todavía no hay retrospectivas.</p>
             }
@@ -160,8 +172,17 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      text-decoration: none;
-      color: inherit;
+      gap: 0.75rem;
+      a {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        flex: 1;
+        text-decoration: none;
+        color: inherit;
+        min-width: 0;
+      }
     }
     .reminder {
       padding: 0.85rem 1rem;
@@ -175,6 +196,7 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
 })
 export class TeamPage implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -194,6 +216,36 @@ export class TeamPage implements OnInit {
 
   selectedTemplate() {
     return this.templates().find((t) => t.id === this.templateId) ?? null;
+  }
+
+  isFacilitator() {
+    const userId = this.auth.user()?.id;
+    if (!userId) return false;
+    return this.team()?.members.some(
+      (m) => m.user.id === userId && m.role === 'facilitator',
+    );
+  }
+
+  deleteRetro(id: string, title: string) {
+    if (
+      !confirm(
+        `¿Borrar la retrospectiva “${title}”? Esta acción no se puede deshacer.`,
+      )
+    ) {
+      return;
+    }
+    this.api.deleteRetro(id).subscribe({
+      next: () => {
+        const current = this.team();
+        if (!current) return;
+        this.team.set({
+          ...current,
+          retrospectives: current.retrospectives.filter((r) => r.id !== id),
+        });
+      },
+      error: (e) =>
+        this.error.set(e?.error?.message || 'No se pudo borrar la retrospectiva'),
+    });
   }
 
   ngOnInit() {

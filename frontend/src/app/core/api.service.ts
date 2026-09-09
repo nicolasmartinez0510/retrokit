@@ -114,6 +114,10 @@ export class ApiService {
     return this.http.post(`${this.base}/retros/${id}/actions`, body);
   }
 
+  deleteRetro(id: string) {
+    return this.http.delete<{ deleted: boolean }>(`${this.base}/retros/${id}`);
+  }
+
   // Actions board
   listActions(teamId: string) {
     return this.http.get<ActionItem[]>(`${this.base}/teams/${teamId}/actions`);

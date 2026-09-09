@@ -6,7 +6,7 @@ export type RetroStatus =
   | 'actions'
   | 'roti'
   | 'closed';
-export type ActionStatus = 'pending' | 'doing' | 'done';
+export type ActionStatus = 'pending' | 'doing' | 'done' | 'unmet';
 
 export interface User {
   id: string;
@@ -219,4 +219,11 @@ export const PHASE_LABELS: Record<RetroStatus, string> = {
   actions: 'Plan de acción',
   roti: 'ROTI',
   closed: 'Cerrada',
+};
+
+export const ACTION_STATUS_LABELS: Record<ActionStatus, string> = {
+  pending: 'Pendiente',
+  doing: 'En curso',
+  done: 'Cumplido',
+  unmet: 'No cumplido',
 };

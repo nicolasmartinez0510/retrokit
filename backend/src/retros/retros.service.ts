@@ -221,6 +221,13 @@ export class RetrosService {
     return this.getBoard(retroId, user);
   }
 
+  async remove(user: JwtPayload, retroId: string) {
+    await this.assertFacilitatorOfRetro(user, retroId);
+    await this.prisma.retrospective.delete({ where: { id: retroId } });
+    this.events.emit(retroId, 'retro-deleted', { retroId });
+    return { deleted: true };
+  }
+
   async updateSettings(
     user: JwtPayload,
     retroId: string,

@@ -1,12 +1,25 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt.strategy';
-import { CreateTeamDto, JoinTeamDto } from './dto/teams.dto';
+import { UserAuthGuard } from '../auth/user-auth.guard';
+import {
+  CreateTeamDto,
+  JoinTeamDto,
+  UpdateTeamDto,
+} from './dto/teams.dto';
 import { TeamsService } from './teams.service';
 
 @Controller('teams')
-@UseGuards(JwtAuthGuard)
+@UseGuards(UserAuthGuard)
 export class TeamsController {
   constructor(private readonly teams: TeamsService) {}
 
@@ -28,5 +41,24 @@ export class TeamsController {
   @Get(':id')
   getOne(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.teams.getOne(user.sub, id);
+  }
+
+  @Get(':id/members')
+  members(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.teams.listMembers(user.sub, id);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateTeamDto,
+  ) {
+    return this.teams.update(user.sub, id, dto);
+  }
+
+  @Delete(':id')
+  remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.teams.remove(user.sub, id);
   }
 }
