@@ -80,6 +80,14 @@ export class ApiService {
     return this.http.post(`${this.base}/retros/${id}/cards`, body);
   }
 
+  updateCard(
+    id: string,
+    cardId: string,
+    body: { content?: string; columnId?: string; isAnonymous?: boolean },
+  ) {
+    return this.http.patch(`${this.base}/retros/${id}/cards/${cardId}`, body);
+  }
+
   deleteCard(id: string, cardId: string) {
     return this.http.delete(`${this.base}/retros/${id}/cards/${cardId}`);
   }

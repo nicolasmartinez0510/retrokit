@@ -173,11 +173,45 @@
                   class="sticky"
                   [class.selected]="selectedCardId === card.id"
                   [class.hidden-card]="card.hidden"
-                  (click)="r.status === 'grouping' && selectForGroup(card.id)"
+                  (click)="r.status === 'grouping' && editingCardId !== card.id && selectForGroup(card.id)"
                 >
-                  <p>{{ card.content }}</p>
-                  @if (!card.hidden && card.authorName) {
-                    <small>{{ card.authorName }}</small>
+                  @if (editingCardId === card.id) {
+                    <div class="card-edit" (click)="$event.stopPropagation()">
+                      <textarea
+                        [(ngModel)]="editDraft"
+                        [name]="'edit-' + card.id"
+                        rows="2"
+                      ></textarea>
+                      @if (r.allowAnonymous) {
+                        <label class="anon">
+                          <input type="checkbox" [(ngModel)]="editAnonymous" [name]="'edit-anon-' + card.id" />
+                          Anónimo
+                        </label>
+                      }
+                      <div class="card-actions">
+                        <button type="button" class="btn-primary btn-sm" (click)="saveEdit(card, $event)">
+                          Guardar
+                        </button>
+                        <button type="button" class="btn-ghost btn-sm" (click)="cancelEdit($event)">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  } @else {
+                    <p>{{ card.content }}</p>
+                    @if (!card.hidden && card.authorName) {
+                      <small>{{ card.authorName }}</small>
+                    }
+                    @if (canManageCard(card)) {
+                      <div class="card-actions">
+                        <button type="button" class="btn-ghost btn-sm" (click)="startEdit(card, $event)">
+                          Editar
+                        </button>
+                        <button type="button" class="btn-danger btn-sm" (click)="deleteCard(card, $event)">
+                          Borrar
+                        </button>
+                      </div>
+                    }
                   }
                   @if (r.status === 'voting' || r.status === 'actions') {
                     <div class="vote-row">

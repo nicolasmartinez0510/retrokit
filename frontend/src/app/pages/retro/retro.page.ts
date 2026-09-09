@@ -37,6 +37,9 @@ export class RetroPage implements OnInit, OnDestroy {
   error = signal('');
   draft: Record<string, string> = {};
   anonymousDraft = false;
+  editingCardId: string | null = null;
+  editDraft = '';
+  editAnonymous = false;
   selectedCardId: string | null = null;
   sortMode = signal<SortMode>('most');
   showSettings = false;
@@ -93,6 +96,7 @@ export class RetroPage implements OnInit, OnDestroy {
     const refresh = () => this.reload(id);
     socket.on('phase-changed', refresh);
     socket.on('card-created', refresh);
+    socket.on('card-updated', refresh);
     socket.on('card-deleted', refresh);
     socket.on('cards-grouped', refresh);
     socket.on('votes-updated', refresh);
@@ -204,6 +208,72 @@ export class RetroPage implements OnInit, OnDestroy {
         },
         error: (e) => this.error.set(e?.error?.message || 'No se pudo agregar'),
       });
+  }
+
+  isOwnCard(card: Card): boolean {
+    const pid = this.retro()?.me?.participantId;
+    return !!pid && card.authorId === pid;
+  }
+
+  canManageCard(card: Card & { isGroup?: boolean }): boolean {
+    const r = this.retro();
+    if (!r) return false;
+    if (r.status !== 'comments' && r.status !== 'grouping') return false;
+    if (card.hidden || card.groupId || card.isGroup) return false;
+    return this.isOwnCard(card);
+  }
+
+  startEdit(card: Card, event: Event) {
+    event.stopPropagation();
+    if (!this.canManageCard(card)) return;
+    this.editingCardId = card.id;
+    this.editDraft = card.content;
+    this.editAnonymous = card.isAnonymous;
+  }
+
+  cancelEdit(event?: Event) {
+    event?.stopPropagation();
+    this.editingCardId = null;
+    this.editDraft = '';
+    this.editAnonymous = false;
+  }
+
+  saveEdit(card: Card, event: Event) {
+    event.stopPropagation();
+    const r = this.retro();
+    const content = this.editDraft.trim();
+    if (!r || !content || !this.canManageCard(card)) return;
+    this.api
+      .updateCard(r.id, card.id, {
+        content,
+        isAnonymous: r.allowAnonymous ? this.editAnonymous : undefined,
+      })
+      .subscribe({
+        next: () => {
+          this.cancelEdit();
+          this.reload(r.id);
+        },
+        error: (e) =>
+          this.error.set(e?.error?.message || 'No se pudo guardar el comentario'),
+      });
+  }
+
+  deleteCard(card: Card, event: Event) {
+    event.stopPropagation();
+    const r = this.retro();
+    if (!r || !this.canManageCard(card)) return;
+    if (!confirm('¿Borrar este comentario? Esta acción no se puede deshacer.')) {
+      return;
+    }
+    this.api.deleteCard(r.id, card.id).subscribe({
+      next: () => {
+        if (this.editingCardId === card.id) this.cancelEdit();
+        if (this.selectedCardId === card.id) this.selectedCardId = null;
+        this.reload(r.id);
+      },
+      error: (e) =>
+        this.error.set(e?.error?.message || 'No se pudo borrar el comentario'),
+    });
   }
 
   toggleCommentsReady(ready: boolean) {
