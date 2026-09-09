@@ -97,4 +97,16 @@ retrokit/
   backend/      NestJS + Prisma
   docker-compose.yml
   .env.example
+  COPYING       GNU GPL v3
+  LICENSE       misma licencia (detección en GitHub/GitLab)
 ```
+
+## Licencia
+
+Retrokit es software libre: puedes redistribuirlo y/o modificarlo bajo los términos de la [GNU General Public License](https://www.gnu.org/licenses/gpl-3.0.html) publicada por la Free Software Foundation, versión 3 o (a tu elección) cualquier versión posterior.
+
+El texto completo está en [`COPYING`](COPYING) y [`LICENSE`](LICENSE).
+
+Copyright (C) 2026 Nicolas Martinez.
+
+Este programa se distribuye con la esperanza de que sea útil, pero **SIN NINGUNA GARANTÍA**; ni siquiera la garantía implícita de COMERCIABILIDAD o IDONEIDAD PARA UN PROPÓSITO PARTICULAR. Ver la GNU GPL para más detalles.

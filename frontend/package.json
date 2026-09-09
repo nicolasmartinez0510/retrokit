@@ -8,6 +8,7 @@
     "watch": "ng build --watch --configuration development"
   },
   "private": true,
+  "license": "GPL-3.0-or-later",
   "dependencies": {
     "@angular/common": "^22.1.0",
     "@angular/compiler": "^22.1.0",
