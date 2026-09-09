@@ -1,0 +1,224 @@
+:root {
+  --color-brand: #008ace;
+  --color-brand-hover: #0077b3;
+  --color-sky-soft: #e3f2fd;
+  --color-sky-mid: #7ec8e8;
+  --color-bg: #ffffff;
+  --color-bg-muted: #f8f8f8;
+  --color-text: #1a1a1a;
+  --color-text-muted: #555555;
+  --color-on-brand: #ffffff;
+  --color-border: #e5e7eb;
+  --color-danger: #c62828;
+  --color-success: #2e7d32;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 3px rgba(26, 26, 26, 0.08), 0 4px 16px rgba(0, 138, 206, 0.06);
+  --font: 'Open Sans', system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--font);
+  color: var(--color-text);
+  background: var(--color-bg-muted);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--color-brand);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-ghost,
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.925rem;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    opacity 0.15s ease;
+  white-space: nowrap;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn-primary {
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  border-color: var(--color-brand);
+
+  &:hover:not(:disabled) {
+    background: var(--color-brand-hover);
+    border-color: var(--color-brand-hover);
+  }
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-brand);
+  border-color: var(--color-brand);
+
+  &:hover:not(:disabled) {
+    background: var(--color-sky-soft);
+  }
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+  border-color: transparent;
+
+  &:hover:not(:disabled) {
+    background: var(--color-sky-soft);
+    color: var(--color-brand);
+  }
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+
+  &:hover:not(:disabled) {
+    background: #ffebee;
+  }
+}
+
+.btn-sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.card {
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--color-border);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+
+  label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+  }
+
+  input,
+  textarea,
+  select {
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 0.75rem;
+    background: var(--color-bg);
+    color: var(--color-text);
+    outline: none;
+    transition: border-color 0.15s ease;
+
+    &:focus {
+      border-color: var(--color-brand);
+    }
+  }
+
+  textarea {
+    resize: vertical;
+    min-height: 80px;
+  }
+}
+
+.form-error {
+  color: var(--color-danger);
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--color-sky-soft);
+  color: var(--color-brand);
+}
+
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+
+  h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+  }
+
+  .subtitle {
+    color: var(--color-text-muted);
+    margin-top: 0.25rem;
+    font-size: 0.95rem;
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  color: var(--color-text-muted);
+
+  strong {
+    display: block;
+    color: var(--color-text);
+    margin-bottom: 0.35rem;
+  }
+}

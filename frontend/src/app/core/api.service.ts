@@ -1,0 +1,139 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environments/environment';
+import {
+  ActionItem,
+  CreateRetroPayload,
+  JoinRetroResponse,
+  RetroBoard,
+  RetroReport,
+  TeamDetail,
+  TeamSummary,
+  Template,
+} from './models';
+
+@Injectable({ providedIn: 'root' })
+export class ApiService {
+  private readonly http = inject(HttpClient);
+  private readonly base = environment.apiUrl;
+
+  // Teams
+  listTeams() {
+    return this.http.get<TeamSummary[]>(`${this.base}/teams`);
+  }
+
+  createTeam(name: string) {
+    return this.http.post<TeamDetail>(`${this.base}/teams`, { name });
+  }
+
+  joinTeam(inviteCode: string) {
+    return this.http.post<TeamDetail>(`${this.base}/teams/join`, { inviteCode });
+  }
+
+  getTeam(id: string) {
+    return this.http.get<TeamDetail>(`${this.base}/teams/${id}`);
+  }
+
+  // Templates
+  listTemplates() {
+    return this.http.get<Template[]>(`${this.base}/templates`);
+  }
+
+  // Retros
+  createRetro(payload: CreateRetroPayload) {
+    return this.http.post<RetroBoard & { openActionsReminder?: number }>(
+      `${this.base}/retros`,
+      payload,
+    );
+  }
+
+  joinRetro(code: string, guestName?: string) {
+    return this.http.post<JoinRetroResponse>(`${this.base}/retros/join`, {
+      code,
+      guestName,
+    });
+  }
+
+  getRetro(id: string) {
+    return this.http.get<RetroBoard>(`${this.base}/retros/${id}`);
+  }
+
+  updateSettings(id: string, settings: Record<string, unknown>) {
+    return this.http.patch(`${this.base}/retros/${id}/settings`, settings);
+  }
+
+  advancePhase(id: string, status: string) {
+    return this.http.post(`${this.base}/retros/${id}/phase`, { status });
+  }
+
+  createCard(
+    id: string,
+    body: { columnId: string; content: string; isAnonymous?: boolean },
+  ) {
+    return this.http.post(`${this.base}/retros/${id}/cards`, body);
+  }
+
+  deleteCard(id: string, cardId: string) {
+    return this.http.delete(`${this.base}/retros/${id}/cards/${cardId}`);
+  }
+
+  groupCards(id: string, sourceCardId: string, targetCardId: string) {
+    return this.http.post(`${this.base}/retros/${id}/group`, {
+      sourceCardId,
+      targetCardId,
+    });
+  }
+
+  vote(
+    id: string,
+    body: { cardId?: string; groupId?: string; count: number },
+  ) {
+    return this.http.post(`${this.base}/retros/${id}/votes`, body);
+  }
+
+  startTimer(id: string, seconds?: number) {
+    return this.http.post(`${this.base}/retros/${id}/timer/start`, { seconds });
+  }
+
+  stopTimer(id: string) {
+    return this.http.post(`${this.base}/retros/${id}/timer/stop`, {});
+  }
+
+  submitRoti(id: string, score: number, comment?: string) {
+    return this.http.post(`${this.base}/retros/${id}/roti`, { score, comment });
+  }
+
+  getReport(id: string) {
+    return this.http.get<RetroReport>(`${this.base}/retros/${id}/report`);
+  }
+
+  createRetroAction(
+    id: string,
+    body: { title: string; description?: string; ownerId?: string },
+  ) {
+    return this.http.post(`${this.base}/retros/${id}/actions`, body);
+  }
+
+  // Actions board
+  listActions(teamId: string) {
+    return this.http.get<ActionItem[]>(`${this.base}/teams/${teamId}/actions`);
+  }
+
+  createAction(
+    teamId: string,
+    body: { title: string; description?: string; ownerId?: string },
+  ) {
+    return this.http.post(`${this.base}/teams/${teamId}/actions`, body);
+  }
+
+  updateAction(
+    teamId: string,
+    actionId: string,
+    body: Partial<ActionItem>,
+  ) {
+    return this.http.patch(
+      `${this.base}/teams/${teamId}/actions/${actionId}`,
+      body,
+    );
+  }
+}

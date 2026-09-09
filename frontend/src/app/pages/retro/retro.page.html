@@ -1,0 +1,270 @@
+@if (retro(); as r) {
+  <div class="retro-shell">
+    <header class="retro-header">
+      <div>
+        <p class="eyebrow">{{ r.team?.name }}</p>
+        <h1>{{ r.title }}</h1>
+      </div>
+      <div class="header-actions">
+        @if (timerLeft() !== null) {
+          <span class="timer">⏱ {{ formatTime(timerLeft()!) }}</span>
+        }
+        <button type="button" class="btn-secondary btn-sm" (click)="showInvite = !showInvite">
+          Invitar
+        </button>
+        @if (isFacilitator()) {
+          <button type="button" class="btn-ghost btn-sm" (click)="showSettings = !showSettings">
+            Ajustes
+          </button>
+          <div class="timer-controls">
+            <select [(ngModel)]="timerSeconds" name="timerPreset" class="timer-select">
+              @for (opt of timerPresets; track opt.value) {
+                <option [ngValue]="opt.value">{{ opt.label }}</option>
+              }
+            </select>
+            <button type="button" class="btn-ghost btn-sm" (click)="startTimer()">Iniciar</button>
+            <button type="button" class="btn-ghost btn-sm" (click)="stopTimer()">Stop</button>
+          </div>
+        }
+      </div>
+    </header>
+
+    <nav class="phases">
+      @for (p of phases; track p.key) {
+        <button
+          type="button"
+          class="phase"
+          [class.active]="r.status === p.key"
+          [class.done]="isPhaseDone(p.key)"
+          [class.clickable]="isFacilitator()"
+          [disabled]="!isFacilitator() || r.status === p.key"
+          (click)="goToPhase(p.key)"
+        >
+          {{ p.label }}
+        </button>
+      }
+    </nav>
+
+    @if (error()) {
+      <p class="form-error banner-error">{{ error() }}</p>
+    }
+
+    @if (showInvite) {
+      <div class="card panel">
+        <h3>Enlaces de invitación</h3>
+        <div class="invite-row">
+          <span>Invitado (sin cuenta)</span>
+          <code>{{ inviteUrl('guest') }}</code>
+          <button type="button" class="btn-secondary btn-sm" (click)="copyInvite('guest')">Copiar</button>
+        </div>
+        <div class="invite-row">
+          <span>Miembro del equipo</span>
+          <code>{{ inviteUrl('member') }}</code>
+          <button type="button" class="btn-secondary btn-sm" (click)="copyInvite('member')">Copiar</button>
+        </div>
+      </div>
+    }
+
+    @if (showSettings && isFacilitator()) {
+      <div class="card panel settings">
+        <h3>Ajustes de facilitación</h3>
+        <div class="settings-grid">
+          <div class="field">
+            <label>Máx. comentarios</label>
+            <input type="number" [(ngModel)]="maxComments" name="maxComments" />
+          </div>
+          <div class="field">
+            <label>Votos por persona</label>
+            <input type="number" [(ngModel)]="votesPerParticipant" name="votesPP" />
+          </div>
+          <div class="field">
+            <label>Máx. votos / tarjeta</label>
+            <input type="number" [(ngModel)]="maxVotesPerCard" name="maxV" />
+          </div>
+          <div class="field">
+            <label>Duración del timer</label>
+            <select [(ngModel)]="timerSeconds" name="timerSec">
+              @for (opt of timerPresets; track opt.value) {
+                <option [ngValue]="opt.value">{{ opt.label }}</option>
+              }
+            </select>
+          </div>
+        </div>
+        <button type="button" class="btn-primary btn-sm" (click)="saveSettings()">Guardar</button>
+      </div>
+    }
+
+    @if (r.status === 'comments' || r.status === 'grouping' || r.status === 'voting' || r.status === 'actions') {
+      <div class="meta-bar">
+        @if (r.status === 'comments' || r.status === 'grouping') {
+          <span>
+            Tus comentarios: {{ r.me?.myCommentCount || 0 }}
+            @if (r.maxCommentsPerParticipant != null) {
+              / {{ r.maxCommentsPerParticipant }}
+            }
+          </span>
+          @if (r.commentProgress; as progress) {
+            <div class="comment-progress" [class.all-done]="progress.allDone">
+              <strong>
+                Comentarios del equipo: {{ progress.written }} / {{ progress.total }}
+                @if (progress.allDone) {
+                  · ¡Todos escribieron!
+                }
+              </strong>
+              <div class="progress-people">
+                @for (p of progress.participants; track p.participantId) {
+                  <span class="person" [class.done]="p.hasWritten" [class.pending]="!p.hasWritten">
+                    {{ p.hasWritten ? '✓' : '○' }} {{ p.name }}
+                    @if (p.commentCount > 0) {
+                      ({{ p.commentCount }})
+                    }
+                  </span>
+                }
+              </div>
+            </div>
+          }
+        }
+        @if (r.status === 'voting') {
+          <span>Votos restantes: {{ r.me?.votesRemaining ?? 0 }} / {{ r.votesPerParticipant }}</span>
+        }
+        @if (r.status === 'actions') {
+          <label class="sort">
+            Ordenar:
+            <select [ngModel]="sortMode()" (ngModelChange)="sortMode.set($event)" name="sort">
+              <option value="most">Más votados</option>
+              <option value="least">Menos votados</option>
+              <option value="original">Original</option>
+            </select>
+          </label>
+        }
+        @if (r.status === 'grouping') {
+          <span class="hint">Selecciona dos tarjetas para agruparlas</span>
+        }
+      </div>
+
+      <div class="board">
+        @for (col of r.columns; track col.id) {
+          <section class="column">
+            <header>
+              <span class="icon">{{ col.icon || '•' }}</span>
+              <div>
+                <h2>{{ col.title }}</h2>
+                @if (col.description) {
+                  <p class="col-desc">{{ col.description }}</p>
+                }
+              </div>
+            </header>
+            <div class="cards">
+              @for (card of cardsForColumn(col.id); track card.id) {
+                <article
+                  class="sticky"
+                  [class.selected]="selectedCardId === card.id"
+                  [class.hidden-card]="card.hidden"
+                  (click)="r.status === 'grouping' && selectForGroup(card.id)"
+                >
+                  <p>{{ card.content }}</p>
+                  @if (!card.hidden && card.authorName) {
+                    <small>{{ card.authorName }}</small>
+                  }
+                  @if (r.status === 'voting' || r.status === 'actions') {
+                    <div class="vote-row">
+                      @if (r.status === 'voting') {
+                        <button type="button" class="btn-ghost btn-sm" (click)="changeVote(card, -1); $event.stopPropagation()">−</button>
+                        <span>{{ myVotesOn(card) }} / {{ r.maxVotesPerCard }}</span>
+                        <button
+                          type="button"
+                          class="btn-ghost btn-sm"
+                          (click)="changeVote(card, 1); $event.stopPropagation()"
+                          [disabled]="myVotesOn(card) >= r.maxVotesPerCard || (r.me?.votesRemaining ?? 0) <= 0"
+                        >+</button>
+                      }
+                      @if (r.status === 'actions') {
+                        <span class="badge">{{ voteCount(card) }} votos</span>
+                      }
+                    </div>
+                  }
+                </article>
+              }
+            </div>
+            @if ((r.status === 'comments' || r.status === 'grouping') && canComment()) {
+              <div class="composer">
+                <textarea
+                  [(ngModel)]="draft[col.id]"
+                  [name]="'draft-' + col.id"
+                  placeholder="Escribe un comentario..."
+                  rows="2"
+                ></textarea>
+                @if (r.allowAnonymous) {
+                  <label class="anon">
+                    <input type="checkbox" [(ngModel)]="anonymousDraft" name="anon" />
+                    Anónimo
+                  </label>
+                }
+                <button type="button" class="btn-primary btn-sm" (click)="addCard(col.id)">
+                  Añadir
+                </button>
+              </div>
+            } @else if (r.status === 'comments' && !canComment()) {
+              <p class="limit-msg">Límite de comentarios alcanzado</p>
+            }
+          </section>
+        }
+      </div>
+    }
+
+    @if (r.status === 'actions') {
+      <div class="card panel action-panel">
+        <h3>Crear acción</h3>
+        <div class="action-form">
+          <input [(ngModel)]="actionTitle" name="actionTitle" placeholder="Descripción de la acción" />
+          <select [(ngModel)]="actionOwnerId" name="owner">
+            <option value="">Sin asignar</option>
+            @for (p of r.participants; track p.id) {
+              @if (p.user) {
+                <option [value]="p.user.id">{{ p.user.name }}</option>
+              }
+            }
+          </select>
+          <button type="button" class="btn-primary" (click)="createAction()">Agregar</button>
+        </div>
+        <ul class="action-list">
+          @for (a of r.actionItems; track a.id) {
+            <li>
+              <strong>{{ a.title }}</strong>
+              @if (a.owner) {
+                <span class="badge">{{ a.owner.name }}</span>
+              }
+            </li>
+          }
+        </ul>
+      </div>
+    }
+
+    @if (r.status === 'roti') {
+      <div class="card panel roti-panel">
+        <h2>ROTI — Return on Time Invested</h2>
+        <p>¿Qué tan útil fue esta retrospectiva? (1–5)</p>
+        <div class="field">
+          <label>Puntuación: {{ rotiScore }}</label>
+          <input type="range" min="1" max="5" [(ngModel)]="rotiScore" name="rotiScore" />
+        </div>
+        <div class="field">
+          <label>Comentario (opcional)</label>
+          <textarea [(ngModel)]="rotiComment" name="rotiComment"></textarea>
+        </div>
+        <button type="button" class="btn-primary" (click)="submitRoti()">Enviar y cerrar</button>
+        <a class="btn-secondary" [routerLink]="['/retros', r.id, 'report']">Ver reporte</a>
+      </div>
+    }
+
+    @if (isFacilitator() && nextPhase() && r.status !== 'roti') {
+      <footer class="facilitator-bar">
+        <button type="button" class="btn-primary" (click)="advance()">
+          Siguiente fase →
+        </button>
+      </footer>
+    }
+  </div>
+} @else {
+  <div class="page"><p>Cargando retrospectiva…</p></div>
+}

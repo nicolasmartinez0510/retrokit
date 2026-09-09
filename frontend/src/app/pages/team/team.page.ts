@@ -1,0 +1,232 @@
+import { Component, OnInit, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ApiService } from '../../core/api.service';
+import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
+
+@Component({
+  selector: 'app-team-page',
+  imports: [FormsModule, RouterLink],
+  template: `
+    <div class="page">
+      @if (team(); as t) {
+        <div class="page-header">
+          <div>
+            <h1>{{ t.name }}</h1>
+            <p class="subtitle">
+              Código de equipo:
+              <strong>{{ t.inviteCode }}</strong>
+            </p>
+          </div>
+          <a class="btn-secondary" [routerLink]="['/teams', t.id, 'actions']"
+            >Tablero de acciones</a
+          >
+        </div>
+
+        @if (reminder()) {
+          <div class="card reminder">
+            Hay {{ reminder() }} acciones pendientes de retros anteriores.
+          </div>
+        }
+
+        <section class="card panel">
+          <h2>Nueva retrospectiva</h2>
+          <form class="create-form" (ngSubmit)="createRetro()">
+            <div class="field">
+              <label>Título</label>
+              <input [(ngModel)]="title" name="title" required />
+            </div>
+            <div class="field">
+              <label>Plantilla</label>
+              <select [(ngModel)]="templateId" name="templateId" required>
+                @for (tpl of templates(); track tpl.id) {
+                  <option [value]="tpl.id">{{ tpl.name }}</option>
+                }
+              </select>
+              @if (selectedTemplate(); as tpl) {
+                <p class="template-hint">{{ tpl.description }}</p>
+                <ul class="template-cols">
+                  @for (col of tpl.columns; track col.id) {
+                    <li>
+                      <strong>{{ col.icon }} {{ col.title }}</strong>
+                      @if (col.description) {
+                        — {{ col.description }}
+                      }
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+            <div class="settings-grid">
+              <div class="field">
+                <label>Máx. comentarios / persona</label>
+                <input
+                  type="number"
+                  [(ngModel)]="maxComments"
+                  name="maxComments"
+                  min="1"
+                />
+              </div>
+              <div class="field">
+                <label>Votos por persona</label>
+                <input
+                  type="number"
+                  [(ngModel)]="votesPerParticipant"
+                  name="votes"
+                  min="1"
+                />
+              </div>
+              <div class="field">
+                <label>Máx. votos por tarjeta</label>
+                <input
+                  type="number"
+                  [(ngModel)]="maxVotesPerCard"
+                  name="maxVotes"
+                  min="1"
+                />
+              </div>
+              <div class="field">
+                <label>Timer por defecto</label>
+                <select [(ngModel)]="timerSeconds" name="timerSeconds">
+                  <option [ngValue]="300">5 min</option>
+                  <option [ngValue]="600">10 min</option>
+                  <option [ngValue]="900">15 min</option>
+                </select>
+              </div>
+            </div>
+            <label class="check">
+              <input type="checkbox" [(ngModel)]="allowAnonymous" name="anon" />
+              Permitir comentarios anónimos
+            </label>
+            <button class="btn-primary" type="submit">Crear retrospectiva</button>
+          </form>
+          @if (error()) {
+            <p class="form-error">{{ error() }}</p>
+          }
+        </section>
+
+        <section class="section">
+          <h2>Miembros</h2>
+          <div class="members">
+            @for (m of t.members; track m.id) {
+              <span class="badge">{{ m.user.name }} · {{ m.role }}</span>
+            }
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Historial</h2>
+          <div class="retro-list">
+            @for (r of t.retrospectives; track r.id) {
+              <a class="card retro-row" [routerLink]="['/retros', r.id]">
+                <strong>{{ r.title }}</strong>
+                <span class="badge">{{ phaseLabel(r.status) }}</span>
+              </a>
+            } @empty {
+              <p class="empty-state">Todavía no hay retrospectivas.</p>
+            }
+          </div>
+        </section>
+      }
+    </div>
+  `,
+  styles: `
+    .panel { padding: 1.25rem; margin-bottom: 1.5rem; }
+    .create-form { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 1rem; }
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0.75rem;
+    }
+    .check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; }
+    .template-hint {
+      margin-top: 0.35rem;
+      font-size: 0.85rem;
+      color: var(--color-text-muted);
+    }
+    .template-cols {
+      margin: 0.5rem 0 0;
+      padding-left: 1.1rem;
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+      li { margin-bottom: 0.25rem; }
+      strong { color: var(--color-text); }
+    }
+    .section { margin-bottom: 1.5rem; h2 { margin-bottom: 0.75rem; font-size: 1.1rem; } }
+    .members { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .retro-list { display: flex; flex-direction: column; gap: 0.6rem; }
+    .retro-row {
+      padding: 0.9rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-decoration: none;
+      color: inherit;
+    }
+    .reminder {
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      background: var(--color-sky-soft);
+      border-color: var(--color-sky-mid);
+      color: var(--color-brand);
+      font-weight: 600;
+    }
+  `,
+})
+export class TeamPage implements OnInit {
+  private readonly api = inject(ApiService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  team = signal<TeamDetail | null>(null);
+  templates = signal<Template[]>([]);
+  title = '';
+  templateId = '';
+  maxComments: number | null = 3;
+  votesPerParticipant = 5;
+  maxVotesPerCard = 2;
+  timerSeconds = 300;
+  allowAnonymous = true;
+  error = signal('');
+  reminder = signal<number | null>(null);
+
+  phaseLabel = (s: keyof typeof PHASE_LABELS) => PHASE_LABELS[s];
+
+  selectedTemplate() {
+    return this.templates().find((t) => t.id === this.templateId) ?? null;
+  }
+
+  ngOnInit() {
+    const id = this.route.snapshot.paramMap.get('id')!;
+    this.api.getTeam(id).subscribe((t) => this.team.set(t));
+    this.api.listTemplates().subscribe((t) => {
+      this.templates.set(t);
+      if (t[0]) this.templateId = t[0].id;
+    });
+  }
+
+  createRetro() {
+    const team = this.team();
+    if (!team) return;
+    this.api
+      .createRetro({
+        teamId: team.id,
+        templateId: this.templateId,
+        title: this.title,
+        maxCommentsPerParticipant: this.maxComments,
+        votesPerParticipant: this.votesPerParticipant,
+        maxVotesPerCard: this.maxVotesPerCard,
+        allowAnonymous: this.allowAnonymous,
+        timerSeconds: this.timerSeconds,
+      })
+      .subscribe({
+        next: (retro) => {
+          if (retro.openActionsReminder) {
+            this.reminder.set(retro.openActionsReminder);
+          }
+          void this.router.navigate(['/retros', retro.id]);
+        },
+        error: (e) => this.error.set(e?.error?.message || 'Error al crear'),
+      });
+  }
+}
