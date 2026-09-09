@@ -119,6 +119,31 @@
   }
 }
 
+.ready-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-brand);
+  background: var(--color-sky-soft);
+  border: 1px solid var(--color-sky-mid);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  cursor: pointer;
+  user-select: none;
+
+  input {
+    accent-color: var(--color-brand);
+    margin: 0;
+  }
+
+  &.locked {
+    opacity: 0.75;
+    cursor: not-allowed;
+  }
+}
+
 .progress-people {
   display: flex;
   flex-wrap: wrap;

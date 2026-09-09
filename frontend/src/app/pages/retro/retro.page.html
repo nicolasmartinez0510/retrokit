@@ -106,18 +106,28 @@
               / {{ r.maxCommentsPerParticipant }}
             }
           </span>
+          <label class="ready-toggle" [class.locked]="readyLocked()">
+            <input
+              type="checkbox"
+              [checked]="!!r.me?.commentsReady"
+              [disabled]="readyLocked()"
+              (change)="toggleCommentsReady($any($event.target).checked)"
+              name="commentsReady"
+            />
+            Estoy listo
+          </label>
           @if (r.commentProgress; as progress) {
             <div class="comment-progress" [class.all-done]="progress.allDone">
               <strong>
-                Comentarios del equipo: {{ progress.written }} / {{ progress.total }}
+                Listos: {{ progress.written }} / {{ progress.total }}
                 @if (progress.allDone) {
-                  · ¡Todos escribieron!
+                  · ¡Todos listos!
                 }
               </strong>
               <div class="progress-people">
                 @for (p of progress.participants; track p.participantId) {
-                  <span class="person" [class.done]="p.hasWritten" [class.pending]="!p.hasWritten">
-                    {{ p.hasWritten ? '✓' : '○' }} {{ p.name }}
+                  <span class="person" [class.done]="p.isReady" [class.pending]="!p.isReady">
+                    {{ p.isReady ? '✓' : '○' }} {{ p.name }}
                     @if (p.commentCount > 0) {
                       ({{ p.commentCount }})
                     }

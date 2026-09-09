@@ -358,8 +358,64 @@ export class RetrosService {
       },
     });
 
+    if (retro.maxCommentsPerParticipant != null) {
+      const newCount = await this.prisma.card.count({
+        where: { retroId, authorId: participant.id },
+      });
+      if (
+        newCount >= retro.maxCommentsPerParticipant &&
+        !participant.commentsReady
+      ) {
+        await this.prisma.participant.update({
+          where: { id: participant.id },
+          data: { commentsReady: true },
+        });
+        this.events.emit(retroId, 'comments-ready-changed', {
+          participantId: participant.id,
+          ready: true,
+        });
+      }
+    }
+
     this.events.emit(retroId, 'card-created', card);
     return card;
+  }
+
+  async setCommentsReady(user: JwtPayload, retroId: string, ready: boolean) {
+    const retro = await this.getRetroOrThrow(retroId);
+    if (
+      retro.status !== RetroStatus.comments &&
+      retro.status !== RetroStatus.grouping
+    ) {
+      throw new BadRequestException(
+        'Ready status can only be changed in comments or grouping phase',
+      );
+    }
+
+    const participant = await this.requireParticipant(user, retroId);
+
+    if (!ready && retro.maxCommentsPerParticipant != null) {
+      const count = await this.prisma.card.count({
+        where: { retroId, authorId: participant.id },
+      });
+      if (count >= retro.maxCommentsPerParticipant) {
+        throw new BadRequestException(
+          'Cannot unready when comment limit is reached',
+        );
+      }
+    }
+
+    const updated = await this.prisma.participant.update({
+      where: { id: participant.id },
+      data: { commentsReady: ready },
+    });
+
+    this.events.emit(retroId, 'comments-ready-changed', {
+      participantId: participant.id,
+      ready,
+    });
+
+    return { commentsReady: updated.commentsReady };
   }
 
   async updateCard(
@@ -755,20 +811,20 @@ export class RetrosService {
         participantId: p.id,
         name,
         commentCount,
-        hasWritten: commentCount > 0,
+        isReady: p.commentsReady,
       };
     });
-    const writtenCount = commentProgress.filter((p) => p.hasWritten).length;
+    const readyCount = commentProgress.filter((p) => p.isReady).length;
 
     return {
       ...retro,
       cards,
       commentProgress: {
-        written: writtenCount,
+        written: readyCount,
         total: commentProgress.length,
         allDone:
           commentProgress.length > 0 &&
-          writtenCount === commentProgress.length,
+          readyCount === commentProgress.length,
         participants: commentProgress,
       },
       me: {
@@ -776,6 +832,7 @@ export class RetrosService {
         myCommentCount,
         myVoteTotal,
         votesRemaining: Math.max(0, retro.votesPerParticipant - myVoteTotal),
+        commentsReady: participant?.commentsReady ?? false,
       },
     };
   }

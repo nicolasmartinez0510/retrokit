@@ -66,6 +66,13 @@ export class ApiService {
     return this.http.post(`${this.base}/retros/${id}/phase`, { status });
   }
 
+  setCommentsReady(id: string, ready: boolean) {
+    return this.http.patch<{ commentsReady: boolean }>(
+      `${this.base}/retros/${id}/me/ready`,
+      { ready },
+    );
+  }
+
   createCard(
     id: string,
     body: { columnId: string; content: string; isAnonymous?: boolean },

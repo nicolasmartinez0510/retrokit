@@ -80,6 +80,12 @@ export class RetroPage implements OnInit, OnDestroy {
     return r.me.myCommentCount < r.maxCommentsPerParticipant;
   });
 
+  readyLocked = computed(() => {
+    const r = this.retro();
+    if (!r?.me || r.maxCommentsPerParticipant == null) return false;
+    return r.me.myCommentCount >= r.maxCommentsPerParticipant;
+  });
+
   ngOnInit() {
     const id = this.route.snapshot.paramMap.get('id')!;
     this.reload(id);
@@ -94,6 +100,7 @@ export class RetroPage implements OnInit, OnDestroy {
     socket.on('timer-updated', refresh);
     socket.on('action-created', refresh);
     socket.on('participant-joined', refresh);
+    socket.on('comments-ready-changed', refresh);
     socket.on('retro-deleted', () => {
       const teamId = this.retro()?.teamId;
       void this.router.navigate(teamId ? ['/teams', teamId] : ['/dashboard']);
@@ -197,6 +204,16 @@ export class RetroPage implements OnInit, OnDestroy {
         },
         error: (e) => this.error.set(e?.error?.message || 'No se pudo agregar'),
       });
+  }
+
+  toggleCommentsReady(ready: boolean) {
+    const r = this.retro();
+    if (!r || this.readyLocked()) return;
+    this.api.setCommentsReady(r.id, ready).subscribe({
+      next: () => this.reload(r.id),
+      error: (e) =>
+        this.error.set(e?.error?.message || 'No se pudo actualizar el estado'),
+    });
   }
 
   selectForGroup(cardId: string) {

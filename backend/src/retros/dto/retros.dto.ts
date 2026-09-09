@@ -175,3 +175,8 @@ export class CreateActionFromRetroDto {
   @IsString()
   ownerId?: string;
 }
+
+export class SetCommentsReadyDto {
+  @IsBoolean()
+  ready!: boolean;
+}

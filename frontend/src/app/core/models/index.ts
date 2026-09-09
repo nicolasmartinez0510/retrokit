@@ -77,6 +77,7 @@ export interface Participant {
   userId?: string | null;
   guestName?: string | null;
   isGuest: boolean;
+  commentsReady?: boolean;
   user?: { id: string; name: string; email?: string } | null;
 }
 
@@ -126,7 +127,7 @@ export interface CommentProgressParticipant {
   participantId: string;
   name: string;
   commentCount: number;
-  hasWritten: boolean;
+  isReady: boolean;
 }
 
 export interface CommentProgress {
@@ -178,6 +179,7 @@ export interface RetroBoard {
     myCommentCount: number;
     myVoteTotal: number;
     votesRemaining: number;
+    commentsReady: boolean;
   };
 }
 

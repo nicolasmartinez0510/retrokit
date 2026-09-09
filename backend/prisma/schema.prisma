@@ -117,16 +117,17 @@ model RetroColumn {
 }
 
 model Participant {
-  id            String         @id @default(cuid())
-  retroId       String
-  userId        String?
-  guestName     String?
-  isGuest       Boolean        @default(false)
-  retro         Retrospective  @relation(fields: [retroId], references: [id], onDelete: Cascade)
-  user          User?          @relation(fields: [userId], references: [id])
-  cards         Card[]
-  votes         Vote[]
-  rotiResponses RotiResponse[]
+  id             String         @id @default(cuid())
+  retroId        String
+  userId         String?
+  guestName      String?
+  isGuest        Boolean        @default(false)
+  commentsReady  Boolean        @default(false)
+  retro          Retrospective  @relation(fields: [retroId], references: [id], onDelete: Cascade)
+  user           User?          @relation(fields: [userId], references: [id])
+  cards          Card[]
+  votes          Vote[]
+  rotiResponses  RotiResponse[]
 
   @@index([retroId, userId])
 }
