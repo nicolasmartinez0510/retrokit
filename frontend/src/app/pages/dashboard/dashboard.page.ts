@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
 
 @Component({
@@ -182,6 +183,7 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
 })
 export class DashboardPage implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
   teams = signal<TeamSummary[]>([]);
@@ -258,6 +260,7 @@ export class DashboardPage implements OnInit {
     this.api.createTeam(this.newTeamName).subscribe({
       next: (team) => {
         this.newTeamName = '';
+        this.auth.markFacilitator();
         const id = (team as { id?: string }).id;
         if (id) void this.router.navigate(['/teams', id]);
         else this.reload();

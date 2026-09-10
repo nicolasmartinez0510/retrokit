@@ -1,9 +1,10 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { tap } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
+import { catchError, map, shareReplay, switchMap, tap } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
-import { AuthResponse, User } from './models';
+import { AuthResponse, TeamSummary, User } from './models';
 
 const TOKEN_KEY = 'retrokit_token';
 const USER_KEY = 'retrokit_user';
@@ -23,16 +24,73 @@ export class AuthService {
   );
   readonly isGuest = computed(() => this.user()?.type === 'guest');
 
+  private meRequest: Observable<User | null> | null = null;
+  private facilitatorRequest: Observable<boolean> | null = null;
+
+  constructor() {
+    if (this.isUser()) {
+      this.ensureFacilitator().subscribe();
+    }
+  }
+
   register(payload: { email: string; password: string; name: string }) {
     return this.http
       .post<AuthResponse>(`${environment.apiUrl}/auth/register`, payload)
-      .pipe(tap((res) => this.persist(res)));
+      .pipe(
+        tap((res) => this.persist(res)),
+        switchMap((res) =>
+          this.ensureFacilitator().pipe(map(() => res)),
+        ),
+      );
   }
 
   login(payload: { email: string; password: string }) {
     return this.http
       .post<AuthResponse>(`${environment.apiUrl}/auth/login`, payload)
-      .pipe(tap((res) => this.persist(res)));
+      .pipe(
+        tap((res) => this.persist(res)),
+        switchMap((res) =>
+          this.ensureFacilitator().pipe(map(() => res)),
+        ),
+      );
+  }
+
+  /** Resolves whether the current user can manage templates. */
+  ensureFacilitator(): Observable<boolean> {
+    if (!this.isUser()) return of(false);
+    if (this.user()?.isFacilitator) return of(true);
+    if (!this.facilitatorRequest) {
+      this.facilitatorRequest = this.ensureMe().pipe(
+        switchMap((user) => {
+          if (user?.isFacilitator) return of(true);
+          return this.http.get<TeamSummary[]>(`${environment.apiUrl}/teams`).pipe(
+            map((teams) =>
+              teams.some(
+                (t) =>
+                  t.role === 'facilitator' ||
+                  t.members?.[0]?.role === 'facilitator',
+              ),
+            ),
+            catchError(() => of(false)),
+          );
+        }),
+        tap((isFacilitator) => {
+          const current = this.user();
+          if (!current || current.type === 'guest') return;
+          if (current.isFacilitator === isFacilitator) return;
+          this.writeUser({ ...current, isFacilitator });
+        }),
+        shareReplay(1),
+      );
+    }
+    return this.facilitatorRequest;
+  }
+
+  markFacilitator() {
+    const current = this.user();
+    if (!current || current.type === 'guest' || current.isFacilitator) return;
+    this.writeUser({ ...current, isFacilitator: true });
+    this.facilitatorRequest = null;
   }
 
   setGuestToken(token: string, name: string, retroId: string, participantId: string) {
@@ -48,6 +106,8 @@ export class AuthService {
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     this.token.set(token);
     this.user.set(user);
+    this.meRequest = null;
+    this.facilitatorRequest = null;
   }
 
   logout() {
@@ -55,14 +115,53 @@ export class AuthService {
     localStorage.removeItem(USER_KEY);
     this.token.set(null);
     this.user.set(null);
+    this.meRequest = null;
+    this.facilitatorRequest = null;
     void this.router.navigateByUrl('/login');
+  }
+
+  private ensureMe(): Observable<User | null> {
+    if (!this.isUser()) return of(null);
+    if (!this.meRequest) {
+      this.meRequest = this.http.get<User>(`${environment.apiUrl}/auth/me`).pipe(
+        map((profile) => {
+          if (profile.type === 'guest') return this.user();
+          const previous = this.user();
+          const user: User = {
+            ...previous,
+            ...profile,
+            type: 'user',
+            isFacilitator:
+              typeof profile.isFacilitator === 'boolean'
+                ? profile.isFacilitator
+                : previous?.isFacilitator,
+          };
+          this.writeUser(user);
+          return user;
+        }),
+        catchError(() => of(this.user())),
+        shareReplay(1),
+      );
+    }
+    return this.meRequest;
   }
 
   private persist(res: AuthResponse) {
     localStorage.setItem(TOKEN_KEY, res.accessToken);
-    const user: User = { ...res.user, type: 'user' };
+    const user: User = {
+      ...res.user,
+      type: 'user',
+      isFacilitator: !!res.user.isFacilitator,
+    };
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     this.token.set(res.accessToken);
+    this.user.set(user);
+    this.meRequest = null;
+    this.facilitatorRequest = null;
+  }
+
+  private writeUser(user: User) {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
     this.user.set(user);
   }
 

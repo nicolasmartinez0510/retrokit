@@ -4,12 +4,14 @@ import { environment } from '../../environments/environment';
 import {
   ActionItem,
   CreateRetroPayload,
+  CreateTemplatePayload,
   JoinRetroResponse,
   RetroBoard,
   RetroReport,
   TeamDetail,
   TeamSummary,
   Template,
+  UpdateTemplatePayload,
 } from './models';
 
 @Injectable({ providedIn: 'root' })
@@ -37,6 +39,24 @@ export class ApiService {
   // Templates
   listTemplates() {
     return this.http.get<Template[]>(`${this.base}/templates`);
+  }
+
+  getTemplate(id: string) {
+    return this.http.get<Template>(`${this.base}/templates/${id}`);
+  }
+
+  createTemplate(payload: CreateTemplatePayload) {
+    return this.http.post<Template>(`${this.base}/templates`, payload);
+  }
+
+  updateTemplate(id: string, payload: UpdateTemplatePayload) {
+    return this.http.patch<Template>(`${this.base}/templates/${id}`, payload);
+  }
+
+  deleteTemplate(id: string) {
+    return this.http.delete<{ deleted: boolean }>(
+      `${this.base}/templates/${id}`,
+    );
   }
 
   // Retros

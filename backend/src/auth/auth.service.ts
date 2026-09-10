@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { TeamRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
@@ -30,7 +31,7 @@ export class AuthService {
         name: dto.name.trim(),
       },
     });
-    return this.tokenResponse(user.id, user.email, user.name);
+    return this.tokenResponse(user.id, user.email, user.name, false);
   }
 
   async login(dto: LoginDto) {
@@ -44,14 +45,26 @@ export class AuthService {
     if (!ok) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
-    return this.tokenResponse(user.id, user.email, user.name);
+    const isFacilitator = await this.isFacilitatorAnywhere(user.id);
+    return this.tokenResponse(user.id, user.email, user.name, isFacilitator);
   }
 
   async me(userId: string) {
-    return this.prisma.user.findUnique({
+    const profile = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, name: true, createdAt: true },
     });
+    if (!profile) return null;
+    const isFacilitator = await this.isFacilitatorAnywhere(userId);
+    return { ...profile, isFacilitator };
+  }
+
+  async isFacilitatorAnywhere(userId: string): Promise<boolean> {
+    const membership = await this.prisma.teamMember.findFirst({
+      where: { userId, role: TeamRole.facilitator },
+      select: { id: true },
+    });
+    return !!membership;
   }
 
   signUser(userId: string, email: string, name: string) {
@@ -73,10 +86,15 @@ export class AuthService {
     });
   }
 
-  private tokenResponse(id: string, email: string, name: string) {
+  private tokenResponse(
+    id: string,
+    email: string,
+    name: string,
+    isFacilitator: boolean,
+  ) {
     return {
       accessToken: this.signUser(id, email, name),
-      user: { id, email, name },
+      user: { id, email, name, isFacilitator },
     };
   }
 }

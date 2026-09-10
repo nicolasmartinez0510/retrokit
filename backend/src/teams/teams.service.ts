@@ -134,4 +134,22 @@ export class TeamsService {
     }
     return membership;
   }
+
+  async assertAnyFacilitator(userId: string) {
+    const membership = await this.prisma.teamMember.findFirst({
+      where: { userId, role: TeamRole.facilitator },
+    });
+    if (!membership) {
+      throw new ForbiddenException('Facilitator role required');
+    }
+    return membership;
+  }
+
+  async isFacilitatorAnywhere(userId: string): Promise<boolean> {
+    const membership = await this.prisma.teamMember.findFirst({
+      where: { userId, role: TeamRole.facilitator },
+      select: { id: true },
+    });
+    return !!membership;
+  }
 }

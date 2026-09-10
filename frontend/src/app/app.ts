@@ -14,6 +14,9 @@ import { AuthService } from './core/auth.service';
       @if (auth.isUser()) {
         <div class="topbar-right">
           <a routerLink="/dashboard" class="nav-link">Panel</a>
+          @if (auth.user()?.isFacilitator) {
+            <a routerLink="/templates" class="nav-link">Plantillas</a>
+          }
           <span class="user-name">{{ auth.user()?.name }}</span>
           <button type="button" class="btn-ghost btn-sm" (click)="auth.logout()">
             Salir

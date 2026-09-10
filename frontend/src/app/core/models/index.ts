@@ -16,6 +16,27 @@ export interface User {
   type?: 'user' | 'guest';
   participantId?: string;
   retroId?: string;
+  isFacilitator?: boolean;
+}
+
+export interface TemplateColumnInput {
+  id?: string;
+  title: string;
+  description?: string | null;
+  icon?: string | null;
+  position: number;
+}
+
+export interface CreateTemplatePayload {
+  name: string;
+  description?: string | null;
+  columns: TemplateColumnInput[];
+}
+
+export interface UpdateTemplatePayload {
+  name?: string;
+  description?: string | null;
+  columns?: TemplateColumnInput[];
 }
 
 export interface AuthResponse {

@@ -1,5 +1,6 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
+import { map } from 'rxjs/operators';
 import { AuthService } from './auth.service';
 
 /** Requires a registered user account (not guest). */
@@ -33,4 +34,14 @@ export const homeRedirectGuard: CanActivateFn = () => {
   return auth.isUser()
     ? router.createUrlTree(['/dashboard'])
     : router.createUrlTree(['/login']);
+};
+
+/** Requires a user who is facilitator of at least one team. */
+export const facilitatorGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  if (!auth.isUser()) return router.createUrlTree(['/login']);
+  return auth.ensureFacilitator().pipe(
+    map((ok) => (ok ? true : router.createUrlTree(['/dashboard']))),
+  );
 };
