@@ -236,7 +236,7 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
       }
       .copied {
         background: var(--color-brand);
-        color: white;
+        color: var(--color-on-brand);
         border-color: var(--color-brand);
       }
     }

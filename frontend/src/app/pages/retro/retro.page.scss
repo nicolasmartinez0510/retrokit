@@ -73,7 +73,7 @@
   &.active {
     background: var(--color-brand);
     border-color: var(--color-brand);
-    color: white;
+    color: var(--color-on-brand);
     font-weight: 700;
     cursor: default;
   }
@@ -266,7 +266,7 @@
 }
 
 .sticky {
-  background: white;
+  background: var(--color-bg);
   border-radius: var(--radius-sm);
   padding: 0.75rem;
   box-shadow: var(--shadow);
@@ -275,7 +275,7 @@
 
   &.selected {
     border-color: var(--color-brand);
-    box-shadow: 0 0 0 2px rgba(0, 138, 206, 0.2);
+    box-shadow: 0 0 0 2px var(--color-focus-ring);
   }
 
   &.hidden-card {
@@ -441,7 +441,7 @@
   padding: 0.85rem;
   display: flex;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--color-chrome);
   border-top: 1px solid var(--color-border);
   backdrop-filter: blur(6px);
 }
@@ -456,8 +456,8 @@
   bottom: 5.5rem;
   z-index: 40;
   transform: translateX(-50%);
-  background: var(--color-text);
-  color: white;
+  background: var(--color-toast-bg);
+  color: var(--color-toast-fg);
   padding: 0.7rem 1.15rem;
   border-radius: var(--radius);
   font-size: 0.875rem;
@@ -499,7 +499,7 @@
   display: grid;
   place-items: center;
   padding: 1.25rem;
-  background: rgba(26, 26, 26, 0.45);
+  background: var(--color-overlay);
   backdrop-filter: blur(4px);
 }
 

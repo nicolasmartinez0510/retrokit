@@ -88,7 +88,7 @@ import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
     @media print {
       .no-print { display: none !important; }
       .page { max-width: none; }
-      .card { box-shadow: none; border: 1px solid #ccc; }
+      .card { box-shadow: none; border: 1px solid var(--color-border); }
     }
   `,
 })

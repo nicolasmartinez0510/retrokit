@@ -112,11 +112,11 @@ import { ActionItem, ActionStatus, TeamDetail } from '../../core/models';
       background: var(--color-sky-soft);
       min-height: 240px;
       h2 { font-size: 1rem; margin-bottom: 0.75rem; }
-      &.done { background: #e8f4fc; }
-      &.unmet { background: #eef2f5; }
+      &.done { background: var(--color-sky-soft); }
+      &.unmet { background: var(--color-bg-muted); }
     }
     .item {
-      background: white;
+      background: var(--color-bg);
       border-radius: 8px;
       padding: 0.7rem;
       margin-bottom: 0.5rem;

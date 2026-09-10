@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --color-brand: #008ace;
   --color-brand-hover: #0077b3;
   --color-sky-soft: #e3f2fd;
@@ -10,11 +11,40 @@
   --color-on-brand: #ffffff;
   --color-border: #e5e7eb;
   --color-danger: #c62828;
+  --color-danger-soft: #ffebee;
   --color-success: #2e7d32;
+  --color-overlay: rgba(26, 26, 26, 0.45);
+  --color-focus-ring: rgba(0, 138, 206, 0.2);
+  --color-chrome: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  --color-toast-bg: #1a1a1a;
+  --color-toast-fg: #ffffff;
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 1px 3px rgba(26, 26, 26, 0.08), 0 4px 16px rgba(0, 138, 206, 0.06);
   --font: 'Open Sans', system-ui, sans-serif;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --color-brand: #008ace;
+  --color-brand-hover: #33a3d9;
+  --color-sky-soft: #1a2f3d;
+  --color-sky-mid: #3d6a85;
+  --color-bg: #152028;
+  --color-bg-muted: #0f171c;
+  --color-text: #e8eef2;
+  --color-text-muted: #9aadb8;
+  --color-on-brand: #ffffff;
+  --color-border: #2a3a45;
+  --color-danger: #ef5350;
+  --color-danger-soft: #3d1f22;
+  --color-success: #66bb6a;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-focus-ring: rgba(0, 138, 206, 0.35);
+  --color-chrome: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  --color-toast-bg: #e8eef2;
+  --color-toast-fg: #152028;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 138, 206, 0.12);
 }
 
 *,
@@ -47,6 +77,13 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+input,
+textarea,
+select {
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 h1,
@@ -119,7 +156,7 @@ p {
   border-color: var(--color-danger);
 
   &:hover:not(:disabled) {
-    background: #ffebee;
+    background: var(--color-danger-soft);
   }
 }
 
@@ -220,5 +257,31 @@ p {
     display: block;
     color: var(--color-text);
     margin-bottom: 0.35rem;
+  }
+}
+
+@media print {
+  :root,
+  [data-theme='dark'] {
+    color-scheme: light;
+    --color-brand: #008ace;
+    --color-brand-hover: #0077b3;
+    --color-sky-soft: #e3f2fd;
+    --color-sky-mid: #7ec8e8;
+    --color-bg: #ffffff;
+    --color-bg-muted: #f8f8f8;
+    --color-text: #1a1a1a;
+    --color-text-muted: #555555;
+    --color-on-brand: #ffffff;
+    --color-border: #e5e7eb;
+    --color-danger: #c62828;
+    --color-danger-soft: #ffebee;
+    --color-success: #2e7d32;
+    --color-overlay: rgba(26, 26, 26, 0.45);
+    --color-focus-ring: rgba(0, 138, 206, 0.2);
+    --color-chrome: #ffffff;
+    --color-toast-bg: #1a1a1a;
+    --color-toast-fg: #ffffff;
+    --shadow: none;
   }
 }
