@@ -202,6 +202,15 @@
     padding: 0.35rem 0.5rem;
     border-radius: 6px;
   }
+
+  button {
+    min-width: 5.5rem;
+  }
+
+  button.copied {
+    background: var(--color-sky-soft);
+    border-color: var(--color-sky-mid);
+  }
 }
 
 .meta-bar {
@@ -337,6 +346,10 @@
   color: var(--color-text-muted);
 }
 
+.action-panel {
+  margin-top: 1rem;
+}
+
 .action-form {
   display: grid;
   grid-template-columns: 1fr 160px auto;
@@ -389,6 +402,34 @@
 
 .banner-error {
   margin-bottom: 0.75rem;
+}
+
+.copy-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 5.5rem;
+  z-index: 40;
+  transform: translateX(-50%);
+  background: var(--color-text);
+  color: white;
+  padding: 0.7rem 1.15rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  animation: copy-toast-in 0.2s ease;
+}
+
+@keyframes copy-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 @media (max-width: 700px) {

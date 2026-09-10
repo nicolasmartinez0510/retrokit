@@ -87,7 +87,7 @@ export class ApiService {
   }
 
   setCommentsReady(id: string, ready: boolean) {
-    return this.http.patch<{ commentsReady: boolean }>(
+    return this.http.patch<{ commentsReady?: boolean; votesReady?: boolean }>(
       `${this.base}/retros/${id}/me/ready`,
       { ready },
     );

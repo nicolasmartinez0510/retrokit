@@ -58,12 +58,26 @@
         <div class="invite-row">
           <span>Invitado (sin cuenta)</span>
           <code>{{ inviteUrl('guest') }}</code>
-          <button type="button" class="btn-secondary btn-sm" (click)="copyInvite('guest')">Copiar</button>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            [class.copied]="copiedKind() === 'guest'"
+            (click)="copyInvite('guest')"
+          >
+            {{ copiedKind() === 'guest' ? 'Copiado' : 'Copiar' }}
+          </button>
         </div>
         <div class="invite-row">
           <span>Miembro del equipo</span>
           <code>{{ inviteUrl('member') }}</code>
-          <button type="button" class="btn-secondary btn-sm" (click)="copyInvite('member')">Copiar</button>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            [class.copied]="copiedKind() === 'member'"
+            (click)="copyInvite('member')"
+          >
+            {{ copiedKind() === 'member' ? 'Copiado' : 'Copiar' }}
+          </button>
         </div>
       </div>
     }
@@ -138,7 +152,40 @@
           }
         }
         @if (r.status === 'voting') {
-          <span>Votos restantes: {{ r.me?.votesRemaining ?? 0 }} / {{ r.votesPerParticipant }}</span>
+          <span>
+            Tus votos: {{ r.me?.myVoteTotal || 0 }} / {{ r.votesPerParticipant }}
+          </span>
+          <label class="ready-toggle" [class.locked]="readyLocked()">
+            <input
+              type="checkbox"
+              [checked]="!!r.me?.votesReady"
+              [disabled]="readyLocked()"
+              (change)="toggleVotesReady($any($event.target).checked)"
+              name="votesReady"
+            />
+            Estoy listo
+          </label>
+          @if (r.voteProgress; as progress) {
+            <div class="comment-progress" [class.all-done]="progress.allDone">
+              <strong>
+                Listos: {{ progress.ready }} / {{ progress.total }}
+                · Votos: {{ progress.votesUsed }} / {{ progress.votesCapacity }}
+                @if (progress.allDone) {
+                  · ¡Todos listos!
+                }
+              </strong>
+              <div class="progress-people">
+                @for (p of progress.participants; track p.participantId) {
+                  <span class="person" [class.done]="p.isReady" [class.pending]="!p.isReady">
+                    {{ p.isReady ? '✓' : '○' }} {{ p.name }}
+                    @if (p.voteCount > 0) {
+                      ({{ p.voteCount }})
+                    }
+                  </span>
+                }
+              </div>
+            </div>
+          }
         }
         @if (r.status === 'actions') {
           <label class="sort">
@@ -310,6 +357,10 @@
           Siguiente fase →
         </button>
       </footer>
+    }
+
+    @if (copyToast(); as msg) {
+      <div class="copy-toast" role="status" aria-live="polite">{{ msg }}</div>
     }
   </div>
 } @else {

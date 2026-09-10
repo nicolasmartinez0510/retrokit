@@ -99,6 +99,7 @@ export interface Participant {
   guestName?: string | null;
   isGuest: boolean;
   commentsReady?: boolean;
+  votesReady?: boolean;
   user?: { id: string; name: string; email?: string } | null;
 }
 
@@ -158,6 +159,22 @@ export interface CommentProgress {
   participants: CommentProgressParticipant[];
 }
 
+export interface VoteProgressParticipant {
+  participantId: string;
+  name: string;
+  voteCount: number;
+  isReady: boolean;
+}
+
+export interface VoteProgress {
+  ready: number;
+  total: number;
+  allDone: boolean;
+  votesUsed: number;
+  votesCapacity: number;
+  participants: VoteProgressParticipant[];
+}
+
 export interface ActionItem {
   id: string;
   teamId: string;
@@ -195,12 +212,14 @@ export interface RetroBoard {
   actionItems: ActionItem[];
   team?: { id: string; name: string };
   commentProgress?: CommentProgress;
+  voteProgress?: VoteProgress;
   me?: {
     participantId?: string;
     myCommentCount: number;
     myVoteTotal: number;
     votesRemaining: number;
     commentsReady: boolean;
+    votesReady: boolean;
   };
 }
 

@@ -44,6 +44,9 @@ export class RetroPage implements OnInit, OnDestroy {
   sortMode = signal<SortMode>('most');
   showSettings = false;
   showInvite = false;
+  copiedKind = signal<'guest' | 'member' | null>(null);
+  copyToast = signal('');
+  private copyToastTimer: ReturnType<typeof setTimeout> | null = null;
   rotiScore = 4;
   rotiComment = '';
   actionTitle = '';
@@ -85,7 +88,12 @@ export class RetroPage implements OnInit, OnDestroy {
 
   readyLocked = computed(() => {
     const r = this.retro();
-    if (!r?.me || r.maxCommentsPerParticipant == null) return false;
+    if (!r?.me) return false;
+    if (r.status === 'voting') {
+      return r.me.myVoteTotal >= r.votesPerParticipant;
+    }
+    if (r.status !== 'comments' && r.status !== 'grouping') return false;
+    if (r.maxCommentsPerParticipant == null) return false;
     return r.me.myCommentCount >= r.maxCommentsPerParticipant;
   });
 
@@ -105,6 +113,7 @@ export class RetroPage implements OnInit, OnDestroy {
     socket.on('action-created', refresh);
     socket.on('participant-joined', refresh);
     socket.on('comments-ready-changed', refresh);
+    socket.on('votes-ready-changed', refresh);
     socket.on('retro-deleted', () => {
       const teamId = this.retro()?.teamId;
       void this.router.navigate(teamId ? ['/teams', teamId] : ['/dashboard']);
@@ -113,6 +122,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     if (this.timerHandle) clearInterval(this.timerHandle);
+    if (this.copyToastTimer) clearTimeout(this.copyToastTimer);
     this.sockets.disconnect();
   }
 
@@ -153,7 +163,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
     cards = [...cards, ...grouped];
 
-    if (r.status === 'actions' || r.status === 'voting') {
+    if (r.status === 'actions') {
       const mode = this.sortMode();
       if (mode !== 'original') {
         cards = [...cards].sort((a, b) => {
@@ -277,6 +287,16 @@ export class RetroPage implements OnInit, OnDestroy {
   }
 
   toggleCommentsReady(ready: boolean) {
+    const r = this.retro();
+    if (!r || this.readyLocked()) return;
+    this.api.setCommentsReady(r.id, ready).subscribe({
+      next: () => this.reload(r.id),
+      error: (e) =>
+        this.error.set(e?.error?.message || 'No se pudo actualizar el estado'),
+    });
+  }
+
+  toggleVotesReady(ready: boolean) {
     const r = this.retro();
     if (!r || this.readyLocked()) return;
     this.api.setCommentsReady(r.id, ready).subscribe({
@@ -429,8 +449,20 @@ export class RetroPage implements OnInit, OnDestroy {
     return `${window.location.origin}/join/${code}`;
   }
 
-  copyInvite(kind: 'guest' | 'member') {
-    void navigator.clipboard.writeText(this.inviteUrl(kind));
+  async copyInvite(kind: 'guest' | 'member') {
+    try {
+      await navigator.clipboard.writeText(this.inviteUrl(kind));
+      this.copiedKind.set(kind);
+      this.copyToast.set('Enlace copiado al portapapeles');
+    } catch {
+      this.copiedKind.set(null);
+      this.copyToast.set('No se pudo copiar el enlace');
+    }
+    if (this.copyToastTimer) clearTimeout(this.copyToastTimer);
+    this.copyToastTimer = setTimeout(() => {
+      this.copiedKind.set(null);
+      this.copyToast.set('');
+    }, 2200);
   }
 
   private syncTimer(endsAt: string | null) {

@@ -123,6 +123,7 @@ model Participant {
   guestName      String?
   isGuest        Boolean        @default(false)
   commentsReady  Boolean        @default(false)
+  votesReady     Boolean        @default(false)
   retro          Retrospective  @relation(fields: [retroId], references: [id], onDelete: Cascade)
   user           User?          @relation(fields: [userId], references: [id])
   cards          Card[]

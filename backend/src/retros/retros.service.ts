@@ -383,39 +383,65 @@ export class RetrosService {
 
   async setCommentsReady(user: JwtPayload, retroId: string, ready: boolean) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (
-      retro.status !== RetroStatus.comments &&
-      retro.status !== RetroStatus.grouping
-    ) {
-      throw new BadRequestException(
-        'Ready status can only be changed in comments or grouping phase',
-      );
-    }
-
     const participant = await this.requireParticipant(user, retroId);
 
-    if (!ready && retro.maxCommentsPerParticipant != null) {
-      const count = await this.prisma.card.count({
-        where: { retroId, authorId: participant.id },
-      });
-      if (count >= retro.maxCommentsPerParticipant) {
-        throw new BadRequestException(
-          'Cannot unready when comment limit is reached',
-        );
+    if (
+      retro.status === RetroStatus.comments ||
+      retro.status === RetroStatus.grouping
+    ) {
+      if (!ready && retro.maxCommentsPerParticipant != null) {
+        const count = await this.prisma.card.count({
+          where: { retroId, authorId: participant.id },
+        });
+        if (count >= retro.maxCommentsPerParticipant) {
+          throw new BadRequestException(
+            'Cannot unready when comment limit is reached',
+          );
+        }
       }
+
+      const updated = await this.prisma.participant.update({
+        where: { id: participant.id },
+        data: { commentsReady: ready },
+      });
+
+      this.events.emit(retroId, 'comments-ready-changed', {
+        participantId: participant.id,
+        ready,
+      });
+
+      return { commentsReady: updated.commentsReady };
     }
 
-    const updated = await this.prisma.participant.update({
-      where: { id: participant.id },
-      data: { commentsReady: ready },
-    });
+    if (retro.status === RetroStatus.voting) {
+      if (!ready) {
+        const myVotes = await this.prisma.vote.findMany({
+          where: { retroId, participantId: participant.id },
+        });
+        const myVoteTotal = myVotes.reduce((s, v) => s + v.count, 0);
+        if (myVoteTotal >= retro.votesPerParticipant) {
+          throw new BadRequestException(
+            'Cannot unready when vote limit is reached',
+          );
+        }
+      }
 
-    this.events.emit(retroId, 'comments-ready-changed', {
-      participantId: participant.id,
-      ready,
-    });
+      const updated = await this.prisma.participant.update({
+        where: { id: participant.id },
+        data: { votesReady: ready },
+      });
 
-    return { commentsReady: updated.commentsReady };
+      this.events.emit(retroId, 'votes-ready-changed', {
+        participantId: participant.id,
+        ready,
+      });
+
+      return { votesReady: updated.votesReady };
+    }
+
+    throw new BadRequestException(
+      'Ready status can only be changed in comments, grouping, or voting phase',
+    );
   }
 
   async updateCard(
@@ -629,6 +655,24 @@ export class RetrosService {
       });
     }
 
+    const myVotes = await this.prisma.vote.findMany({
+      where: { retroId, participantId: participant.id },
+    });
+    const myVoteTotal = myVotes.reduce((s, v) => s + v.count, 0);
+    if (
+      myVoteTotal >= retro.votesPerParticipant &&
+      !participant.votesReady
+    ) {
+      await this.prisma.participant.update({
+        where: { id: participant.id },
+        data: { votesReady: true },
+      });
+      this.events.emit(retroId, 'votes-ready-changed', {
+        participantId: participant.id,
+        ready: true,
+      });
+    }
+
     const votes = await this.prisma.vote.findMany({ where: { retroId } });
     this.events.emit(retroId, 'votes-updated', { votes });
     return { votes };
@@ -816,6 +860,29 @@ export class RetrosService {
     });
     const readyCount = commentProgress.filter((p) => p.isReady).length;
 
+    const voteProgressParticipants = retro.participants.map((p) => {
+      const voteCount = retro.votes
+        .filter((v) => v.participantId === p.id)
+        .reduce((s, v) => s + v.count, 0);
+      const name =
+        p.guestName ?? p.user?.name ?? (p.isGuest ? 'Invitado' : 'Participante');
+      return {
+        participantId: p.id,
+        name,
+        voteCount,
+        isReady: p.votesReady,
+      };
+    });
+    const votesReadyCount = voteProgressParticipants.filter(
+      (p) => p.isReady,
+    ).length;
+    const votesUsed = voteProgressParticipants.reduce(
+      (s, p) => s + p.voteCount,
+      0,
+    );
+    const votesCapacity =
+      voteProgressParticipants.length * retro.votesPerParticipant;
+
     return {
       ...retro,
       cards,
@@ -827,12 +894,23 @@ export class RetrosService {
           readyCount === commentProgress.length,
         participants: commentProgress,
       },
+      voteProgress: {
+        ready: votesReadyCount,
+        total: voteProgressParticipants.length,
+        allDone:
+          voteProgressParticipants.length > 0 &&
+          votesReadyCount === voteProgressParticipants.length,
+        votesUsed,
+        votesCapacity,
+        participants: voteProgressParticipants,
+      },
       me: {
         participantId: participant?.id,
         myCommentCount,
         myVoteTotal,
         votesRemaining: Math.max(0, retro.votesPerParticipant - myVoteTotal),
         commentsReady: participant?.commentsReady ?? false,
+        votesReady: participant?.votesReady ?? false,
       },
     };
   }
