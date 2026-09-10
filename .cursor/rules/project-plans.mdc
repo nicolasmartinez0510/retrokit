@@ -1,0 +1,12 @@
+---
+description: Guardar planes de Cursor de Retrokit en .cursor/plans del repo
+alwaysApply: true
+---
+
+# Planes del proyecto
+
+Los planes de este repo viven en `.cursor/plans/`, no en `~/.cursor/plans`.
+
+- Al crear o actualizar un plan, escribilo en `.cursor/plans/<slug>_<id>.plan.md`.
+- Si Cursor lo genera en `~/.cursor/plans/`, copialo al proyecto y marcá `isProject: true`.
+- No mezclar planes de otros repos (Guestcast, Weatherflow, etc.).

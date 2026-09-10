@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RetrosModule } from './retros/retros.module';
 import { TeamsModule } from './teams/teams.module';
 import { TemplatesModule } from './templates/templates.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Controller('health')
 class HealthController {
@@ -19,6 +20,7 @@ class HealthController {
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    UploadsModule,
     AuthModule,
     TeamsModule,
     TemplatesModule,

@@ -138,7 +138,8 @@ model Card {
   retroId     String
   columnId    String
   authorId    String
-  content     String
+  content     String        @default("")
+  imageUrl    String?
   isAnonymous Boolean       @default(false)
   groupId     String?
   position    Int           @default(0)

@@ -37,7 +37,12 @@ import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
             <ul>
               @for (card of cardsIn(col.id); track card.id) {
                 <li>
-                  {{ card.content }}
+                  @if (card.content) {
+                    <span>{{ card.content }}</span>
+                  }
+                  @if (card.imageUrl) {
+                    <img class="report-thumb" [src]="card.imageUrl" alt="" />
+                  }
                   <span class="badge">{{ votesFor(card.id, card.groupId) }} votos</span>
                 </li>
               }
@@ -69,7 +74,15 @@ import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
       h2 { margin-bottom: 0.75rem; font-size: 1.15rem; }
       h3 { margin: 0.85rem 0 0.4rem; font-size: 1rem; color: var(--color-brand); }
       ul { margin: 0; padding-left: 1.1rem; }
-      li { margin-bottom: 0.35rem; }
+      li { margin-bottom: 0.35rem; white-space: pre-wrap; }
+    }
+    .report-thumb {
+      display: block;
+      max-width: 160px;
+      max-height: 100px;
+      margin: 0.35rem 0;
+      object-fit: contain;
+      border-radius: 4px;
     }
     .actions { display: flex; gap: 0.5rem; }
     @media print {

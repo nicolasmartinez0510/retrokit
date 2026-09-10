@@ -17,14 +17,30 @@ import {
   RetroStatus,
 } from '../../core/models';
 import { SocketService } from '../../core/socket.service';
+import { AutosizeTextareaDirective } from '../../shared/autosize-textarea.directive';
+import { EmojiPickerComponent } from '../../shared/emoji-picker.component';
 
 type SortMode = 'most' | 'least' | 'original';
 
 const spectateKey = (id: string) => `retrokit:spectate:${id}`;
 
+const CARD_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
+const CARD_IMAGE_MIMES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]);
+const CARD_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+
 @Component({
   selector: 'app-retro-page',
-  imports: [FormsModule, RouterLink],
+  imports: [
+    FormsModule,
+    RouterLink,
+    AutosizeTextareaDirective,
+    EmojiPickerComponent,
+  ],
   templateUrl: './retro.page.html',
   styleUrl: './retro.page.scss',
 })
@@ -38,10 +54,17 @@ export class RetroPage implements OnInit, OnDestroy {
   retro = signal<RetroBoard | null>(null);
   error = signal('');
   draft: Record<string, string> = {};
+  draftImage: Record<string, File | null> = {};
+  draftPreview: Record<string, string | null> = {};
   anonymousDraft = false;
   editingCardId: string | null = null;
   editDraft = '';
   editAnonymous = false;
+  editImageUrl: string | null = null;
+  editImageFile: File | null = null;
+  editImagePreview: string | null = null;
+  editRemoveImage = false;
+  readonly imageAccept = CARD_IMAGE_ACCEPT;
   selectedCardId: string | null = null;
   sortMode = signal<SortMode>('most');
   showSettings = false;
@@ -137,6 +160,8 @@ export class RetroPage implements OnInit, OnDestroy {
   ngOnDestroy() {
     if (this.timerHandle) clearInterval(this.timerHandle);
     if (this.copyToastTimer) clearTimeout(this.copyToastTimer);
+    this.clearAllDraftPreviews();
+    this.clearEditImagePreview();
     this.sockets.disconnect();
   }
 
@@ -245,9 +270,15 @@ export class RetroPage implements OnInit, OnDestroy {
         const gCards = r.cards.filter((c) => c.groupId === g.id);
         if (!gCards.length) return null;
         if (gCards[0].columnId !== columnId) return null;
+        const texts = gCards.map((c) => c.content).filter((t) => t.trim());
+        const imageUrls = gCards
+          .map((c) => c.imageUrl)
+          .filter((u): u is string => !!u);
         return {
           ...gCards[0],
-          content: gCards.map((c) => c.content).join(' · '),
+          content: texts.join(' · '),
+          imageUrl: imageUrls[0] ?? null,
+          imageUrls,
           isGroup: true,
           groupId: g.id,
           groupSize: gCards.length,
@@ -295,23 +326,98 @@ export class RetroPage implements OnInit, OnDestroy {
     return v?.count ?? 0;
   }
 
+  canSubmitComposer(columnId: string): boolean {
+    const content = (this.draft[columnId] || '').trim();
+    return !!content || !!this.draftImage[columnId];
+  }
+
   addCard(columnId: string) {
     const r = this.retro();
     const content = (this.draft[columnId] || '').trim();
-    if (!r || !content) return;
+    const image = this.draftImage[columnId] ?? null;
+    if (!r || (!content && !image)) return;
     this.api
       .createCard(r.id, {
         columnId,
         content,
         isAnonymous: this.anonymousDraft,
+        image,
       })
       .subscribe({
         next: () => {
           this.draft[columnId] = '';
+          this.clearDraftImage(columnId);
           this.reload(r.id);
         },
         error: (e) => this.error.set(e?.error?.message || 'No se pudo agregar'),
       });
+  }
+
+  insertEmojiIntoDraft(columnId: string, emoji: string, ta: HTMLTextAreaElement) {
+    const current = this.draft[columnId] || '';
+    const start = ta.selectionStart ?? current.length;
+    const end = ta.selectionEnd ?? current.length;
+    this.draft[columnId] =
+      current.slice(0, start) + emoji + current.slice(end);
+    queueMicrotask(() => {
+      ta.focus();
+      const pos = start + emoji.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  }
+
+  insertEmojiIntoEdit(emoji: string, ta: HTMLTextAreaElement) {
+    const current = this.editDraft || '';
+    const start = ta.selectionStart ?? current.length;
+    const end = ta.selectionEnd ?? current.length;
+    this.editDraft = current.slice(0, start) + emoji + current.slice(end);
+    queueMicrotask(() => {
+      ta.focus();
+      const pos = start + emoji.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  }
+
+  onDraftFile(columnId: string, event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    this.setDraftImage(columnId, file);
+  }
+
+  onDraftPaste(columnId: string, event: ClipboardEvent) {
+    const file = this.imageFromClipboard(event);
+    if (!file) return;
+    event.preventDefault();
+    this.setDraftImage(columnId, file);
+  }
+
+  clearDraftImage(columnId: string) {
+    const prev = this.draftPreview[columnId];
+    if (prev) URL.revokeObjectURL(prev);
+    this.draftImage[columnId] = null;
+    this.draftPreview[columnId] = null;
+  }
+
+  private setDraftImage(columnId: string, file: File | null) {
+    if (!file) {
+      this.clearDraftImage(columnId);
+      return;
+    }
+    const err = this.validateImageFile(file);
+    if (err) {
+      this.error.set(err);
+      return;
+    }
+    this.clearDraftImage(columnId);
+    this.draftImage[columnId] = file;
+    this.draftPreview[columnId] = URL.createObjectURL(file);
+  }
+
+  private clearAllDraftPreviews() {
+    for (const key of Object.keys(this.draftPreview)) {
+      this.clearDraftImage(key);
+    }
   }
 
   isOwnCard(card: Card): boolean {
@@ -330,9 +436,13 @@ export class RetroPage implements OnInit, OnDestroy {
   startEdit(card: Card, event: Event) {
     event.stopPropagation();
     if (!this.canManageCard(card)) return;
+    this.clearEditImagePreview();
     this.editingCardId = card.id;
     this.editDraft = card.content;
     this.editAnonymous = card.isAnonymous;
+    this.editImageUrl = card.imageUrl ?? null;
+    this.editImageFile = null;
+    this.editRemoveImage = false;
   }
 
   cancelEdit(event?: Event) {
@@ -340,26 +450,140 @@ export class RetroPage implements OnInit, OnDestroy {
     this.editingCardId = null;
     this.editDraft = '';
     this.editAnonymous = false;
+    this.clearEditImagePreview();
+    this.editImageUrl = null;
+    this.editImageFile = null;
+    this.editRemoveImage = false;
+  }
+
+  canSaveEdit(card: Card): boolean {
+    const content = this.editDraft.trim();
+    const hasImage =
+      !!this.editImageFile || (!!this.editImageUrl && !this.editRemoveImage);
+    return !!content || hasImage;
+  }
+
+  onEditFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file) return;
+    const err = this.validateImageFile(file);
+    if (err) {
+      this.error.set(err);
+      return;
+    }
+    this.clearEditImagePreview();
+    this.editImageFile = file;
+    this.editImagePreview = URL.createObjectURL(file);
+    this.editRemoveImage = false;
+  }
+
+  onEditPaste(event: ClipboardEvent) {
+    const file = this.imageFromClipboard(event);
+    if (!file) return;
+    event.preventDefault();
+    const err = this.validateImageFile(file);
+    if (err) {
+      this.error.set(err);
+      return;
+    }
+    this.clearEditImagePreview();
+    this.editImageFile = file;
+    this.editImagePreview = URL.createObjectURL(file);
+    this.editRemoveImage = false;
+  }
+
+  removeEditImage(event: Event) {
+    event.stopPropagation();
+    this.clearEditImagePreview();
+    this.editImageFile = null;
+    if (this.editImageUrl) {
+      this.editRemoveImage = true;
+    }
   }
 
   saveEdit(card: Card, event: Event) {
     event.stopPropagation();
     const r = this.retro();
     const content = this.editDraft.trim();
-    if (!r || !content || !this.canManageCard(card)) return;
+    if (!r || !this.canManageCard(card) || !this.canSaveEdit(card)) return;
+
+    const afterContent = () => {
+      if (this.editImageFile) {
+        this.api.uploadCardImage(r.id, card.id, this.editImageFile).subscribe({
+          next: () => {
+            this.cancelEdit();
+            this.reload(r.id);
+          },
+          error: (e) =>
+            this.error.set(
+              e?.error?.message || 'No se pudo subir la imagen',
+            ),
+        });
+        return;
+      }
+      if (this.editRemoveImage && card.imageUrl) {
+        this.api.deleteCardImage(r.id, card.id).subscribe({
+          next: () => {
+            this.cancelEdit();
+            this.reload(r.id);
+          },
+          error: (e) =>
+            this.error.set(
+              e?.error?.message || 'No se pudo quitar la imagen',
+            ),
+        });
+        return;
+      }
+      this.cancelEdit();
+      this.reload(r.id);
+    };
+
     this.api
       .updateCard(r.id, card.id, {
         content,
         isAnonymous: r.allowAnonymous ? this.editAnonymous : undefined,
       })
       .subscribe({
-        next: () => {
-          this.cancelEdit();
-          this.reload(r.id);
-        },
+        next: () => afterContent(),
         error: (e) =>
           this.error.set(e?.error?.message || 'No se pudo guardar el comentario'),
       });
+  }
+
+  cardImages(card: Card): string[] {
+    if (card.imageUrls?.length) return card.imageUrls;
+    if (card.imageUrl) return [card.imageUrl];
+    return [];
+  }
+
+  private clearEditImagePreview() {
+    if (this.editImagePreview) {
+      URL.revokeObjectURL(this.editImagePreview);
+      this.editImagePreview = null;
+    }
+  }
+
+  private validateImageFile(file: File): string | null {
+    if (!CARD_IMAGE_MIMES.has(file.type)) {
+      return 'Solo se permiten PNG, JPEG, WebP o GIF';
+    }
+    if (file.size > CARD_IMAGE_MAX_BYTES) {
+      return 'La imagen no puede superar 3 MB';
+    }
+    return null;
+  }
+
+  private imageFromClipboard(event: ClipboardEvent): File | null {
+    const items = event.clipboardData?.items;
+    if (!items) return null;
+    for (const item of Array.from(items)) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        return item.getAsFile();
+      }
+    }
+    return null;
   }
 
   deleteCard(card: Card, event: Event) {

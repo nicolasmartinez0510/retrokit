@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
@@ -5,10 +6,18 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
 
+function toOptionalBoolean({ value }: { value: unknown }): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  if (value === 'true' || value === '1') return true;
+  if (value === 'false' || value === '0') return false;
+  return value as boolean;
+}
 export class CreateRetroDto {
   @IsString()
   @IsNotEmpty()
@@ -89,11 +98,14 @@ export class CreateCardDto {
   @IsNotEmpty()
   columnId!: string;
 
+  /** Plain text; may be empty when an image is attached. */
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  content!: string;
+  @MaxLength(2000)
+  content?: string;
 
   @IsOptional()
+  @Transform(toOptionalBoolean)
   @IsBoolean()
   isAnonymous?: boolean;
 }
@@ -105,7 +117,7 @@ export class UpdateCardDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(1)
+  @MaxLength(2000)
   content?: string;
 
   @IsOptional()

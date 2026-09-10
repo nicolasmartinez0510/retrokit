@@ -118,6 +118,7 @@ export interface Card {
   columnId: string;
   authorId: string;
   content: string;
+  imageUrl?: string | null;
   isAnonymous: boolean;
   groupId?: string | null;
   position: number;
@@ -126,6 +127,8 @@ export interface Card {
   authorName?: string;
   author?: Participant;
   votes?: Vote[];
+  /** Client-only: images from grouped cards */
+  imageUrls?: string[];
 }
 
 export interface CardGroup {

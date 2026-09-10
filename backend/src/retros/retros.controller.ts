@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -6,12 +7,20 @@ import {
   Param,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { CurrentUser } from '../auth/decorators';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt.strategy';
+import {
+  CARD_IMAGE_MAX_BYTES,
+  CARD_IMAGE_MIMES,
+} from '../uploads/uploads.service';
 import {
   AdvancePhaseDto,
   CreateActionFromRetroDto,
@@ -27,6 +36,20 @@ import {
   VoteDto,
 } from './dto/retros.dto';
 import { RetrosService } from './retros.service';
+
+const cardImageInterceptor = FileInterceptor('image', {
+  storage: memoryStorage(),
+  limits: { fileSize: CARD_IMAGE_MAX_BYTES },
+  fileFilter: (_req, file, cb) => {
+    if (!CARD_IMAGE_MIMES.has(file.mimetype)) {
+      return cb(
+        new BadRequestException('Solo se permiten PNG, JPEG, WebP o GIF') as unknown as Error,
+        false,
+      );
+    }
+    cb(null, true);
+  },
+});
 
 @Controller('retros')
 export class RetrosController {
@@ -94,12 +117,14 @@ export class RetrosController {
 
   @Post(':id/cards')
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(cardImageInterceptor)
   createCard(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: CreateCardDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.retros.createCard(user, id, dto);
+    return this.retros.createCard(user, id, dto, file);
   }
 
   @Patch(':id/cards/:cardId')
@@ -111,6 +136,31 @@ export class RetrosController {
     @Body() dto: UpdateCardDto,
   ) {
     return this.retros.updateCard(user, id, cardId, dto);
+  }
+
+  @Post(':id/cards/:cardId/image')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(cardImageInterceptor)
+  setCardImage(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('cardId') cardId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+    return this.retros.setCardImage(user, id, cardId, file);
+  }
+
+  @Delete(':id/cards/:cardId/image')
+  @UseGuards(JwtAuthGuard)
+  deleteCardImage(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('cardId') cardId: string,
+  ) {
+    return this.retros.deleteCardImage(user, id, cardId);
   }
 
   @Delete(':id/cards/:cardId')

@@ -256,10 +256,42 @@
                   @if (editingCardId === card.id) {
                     <div class="card-edit" (click)="$event.stopPropagation()">
                       <textarea
+                        #editTa
+                        autosizeTextarea
                         [(ngModel)]="editDraft"
                         [name]="'edit-' + card.id"
                         rows="2"
+                        (paste)="onEditPaste($event)"
                       ></textarea>
+                      <div class="composer-toolbar">
+                        <app-emoji-picker
+                          (picked)="insertEmojiIntoEdit($event, editTa)"
+                        />
+                        <label class="btn-ghost btn-sm image-pick">
+                          Imagen / GIF
+                          <input
+                            type="file"
+                            hidden
+                            [accept]="imageAccept"
+                            (change)="onEditFile($event)"
+                          />
+                        </label>
+                      </div>
+                      @if (editImagePreview || (editImageUrl && !editRemoveImage)) {
+                        <div class="media-preview">
+                          <img
+                            [src]="editImagePreview || editImageUrl"
+                            alt="Vista previa"
+                          />
+                          <button
+                            type="button"
+                            class="btn-ghost btn-sm"
+                            (click)="removeEditImage($event)"
+                          >
+                            Quitar
+                          </button>
+                        </div>
+                      }
                       @if (r.allowAnonymous) {
                         <label class="anon">
                           <input type="checkbox" [(ngModel)]="editAnonymous" [name]="'edit-anon-' + card.id" />
@@ -267,7 +299,12 @@
                         </label>
                       }
                       <div class="card-actions">
-                        <button type="button" class="btn-primary btn-sm" (click)="saveEdit(card, $event)">
+                        <button
+                          type="button"
+                          class="btn-primary btn-sm"
+                          (click)="saveEdit(card, $event)"
+                          [disabled]="!canSaveEdit(card)"
+                        >
                           Guardar
                         </button>
                         <button type="button" class="btn-ghost btn-sm" (click)="cancelEdit($event)">
@@ -276,7 +313,16 @@
                       </div>
                     </div>
                   } @else {
-                    <p>{{ card.content }}</p>
+                    @if (card.content) {
+                      <p>{{ card.content }}</p>
+                    }
+                    @if (cardImages(card).length) {
+                      <div class="card-media">
+                        @for (url of cardImages(card); track url) {
+                          <img [src]="url" alt="" />
+                        }
+                      </div>
+                    }
                     @if (!card.hidden && card.authorName) {
                       <small>{{ card.authorName }}</small>
                     }
@@ -314,18 +360,52 @@
             @if ((r.status === 'comments' || r.status === 'grouping') && canComment()) {
               <div class="composer">
                 <textarea
+                  #draftTa
+                  autosizeTextarea
                   [(ngModel)]="draft[col.id]"
                   [name]="'draft-' + col.id"
                   placeholder="Escribe un comentario..."
                   rows="2"
+                  (paste)="onDraftPaste(col.id, $event)"
                 ></textarea>
+                <div class="composer-toolbar">
+                  <app-emoji-picker
+                    (picked)="insertEmojiIntoDraft(col.id, $event, draftTa)"
+                  />
+                  <label class="btn-ghost btn-sm image-pick">
+                    Imagen / GIF
+                    <input
+                      type="file"
+                      hidden
+                      [accept]="imageAccept"
+                      (change)="onDraftFile(col.id, $event)"
+                    />
+                  </label>
+                </div>
+                @if (draftPreview[col.id]) {
+                  <div class="media-preview">
+                    <img [src]="draftPreview[col.id]" alt="Vista previa" />
+                    <button
+                      type="button"
+                      class="btn-ghost btn-sm"
+                      (click)="clearDraftImage(col.id)"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                }
                 @if (r.allowAnonymous) {
                   <label class="anon">
                     <input type="checkbox" [(ngModel)]="anonymousDraft" name="anon" />
                     Anónimo
                   </label>
                 }
-                <button type="button" class="btn-primary btn-sm" (click)="addCard(col.id)">
+                <button
+                  type="button"
+                  class="btn-primary btn-sm"
+                  (click)="addCard(col.id)"
+                  [disabled]="!canSubmitComposer(col.id)"
+                >
                   Añadir
                 </button>
               </div>

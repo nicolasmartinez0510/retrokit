@@ -99,9 +99,23 @@ export class ApiService {
 
   createCard(
     id: string,
-    body: { columnId: string; content: string; isAnonymous?: boolean },
+    body: {
+      columnId: string;
+      content: string;
+      isAnonymous?: boolean;
+      image?: File | null;
+    },
   ) {
-    return this.http.post(`${this.base}/retros/${id}/cards`, body);
+    const form = new FormData();
+    form.append('columnId', body.columnId);
+    form.append('content', body.content ?? '');
+    if (body.isAnonymous !== undefined) {
+      form.append('isAnonymous', String(body.isAnonymous));
+    }
+    if (body.image) {
+      form.append('image', body.image, body.image.name);
+    }
+    return this.http.post(`${this.base}/retros/${id}/cards`, form);
   }
 
   updateCard(
@@ -110,6 +124,19 @@ export class ApiService {
     body: { content?: string; columnId?: string; isAnonymous?: boolean },
   ) {
     return this.http.patch(`${this.base}/retros/${id}/cards/${cardId}`, body);
+  }
+
+  uploadCardImage(id: string, cardId: string, image: File) {
+    const form = new FormData();
+    form.append('image', image, image.name);
+    return this.http.post(
+      `${this.base}/retros/${id}/cards/${cardId}/image`,
+      form,
+    );
+  }
+
+  deleteCardImage(id: string, cardId: string) {
+    return this.http.delete(`${this.base}/retros/${id}/cards/${cardId}/image`);
   }
 
   deleteCard(id: string, cardId: string) {

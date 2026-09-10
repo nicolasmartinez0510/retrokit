@@ -9,6 +9,7 @@ import { AuthService } from '../auth/auth.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
+import { UploadsService } from '../uploads/uploads.service';
 import {
   CreateActionFromRetroDto,
   CreateCardDto,
@@ -72,6 +73,7 @@ export class RetrosService {
     private readonly teams: TeamsService,
     private readonly auth: AuthService,
     private readonly events: RetroEventsService,
+    private readonly uploads: UploadsService,
   ) {}
 
   async create(userId: string, dto: CreateRetroDto) {
@@ -225,6 +227,7 @@ export class RetrosService {
   async remove(user: JwtPayload, retroId: string) {
     await this.assertFacilitatorOfRetro(user, retroId);
     await this.prisma.retrospective.delete({ where: { id: retroId } });
+    await this.uploads.deleteRetroCardDir(retroId);
     this.events.emit(retroId, 'retro-deleted', { retroId });
     return { deleted: true };
   }
@@ -302,7 +305,12 @@ export class RetrosService {
     return this.getBoard(retroId, user);
   }
 
-  async createCard(user: JwtPayload, retroId: string, dto: CreateCardDto) {
+  async createCard(
+    user: JwtPayload,
+    retroId: string,
+    dto: CreateCardDto,
+    file?: Express.Multer.File,
+  ) {
     const retro = await this.getRetroOrThrow(retroId);
     if (
       retro.status !== RetroStatus.comments &&
@@ -330,6 +338,14 @@ export class RetrosService {
       }
     }
 
+    const content = (dto.content ?? '').trim();
+    if (!content && !file) {
+      throw new BadRequestException('Comment needs text or an image');
+    }
+    if (file) {
+      this.uploads.assertCardImage(file);
+    }
+
     const isAnonymous = dto.isAnonymous ?? false;
     if (isAnonymous && !retro.allowAnonymous) {
       throw new BadRequestException('Anonymous cards are not allowed');
@@ -340,46 +356,59 @@ export class RetrosService {
       _max: { position: true },
     });
 
-    const card = await this.prisma.card.create({
-      data: {
-        retroId,
-        columnId: dto.columnId,
-        authorId: participant.id,
-        content: dto.content.trim(),
-        isAnonymous,
-        position: (maxPos._max.position ?? -1) + 1,
-      },
-      include: {
-        author: {
-          include: {
-            user: { select: { id: true, name: true, email: true } },
-          },
-        },
-        votes: true,
-      },
-    });
-
-    if (retro.maxCommentsPerParticipant != null) {
-      const newCount = await this.prisma.card.count({
-        where: { retroId, authorId: participant.id },
-      });
-      if (
-        newCount >= retro.maxCommentsPerParticipant &&
-        !participant.commentsReady
-      ) {
-        await this.prisma.participant.update({
-          where: { id: participant.id },
-          data: { commentsReady: true },
-        });
-        this.events.emit(retroId, 'comments-ready-changed', {
-          participantId: participant.id,
-          ready: true,
-        });
-      }
+    let imageUrl: string | null = null;
+    if (file) {
+      imageUrl = await this.uploads.saveCardImage(retroId, file);
     }
 
-    this.events.emit(retroId, 'card-created', card);
-    return card;
+    try {
+      const card = await this.prisma.card.create({
+        data: {
+          retroId,
+          columnId: dto.columnId,
+          authorId: participant.id,
+          content,
+          imageUrl,
+          isAnonymous,
+          position: (maxPos._max.position ?? -1) + 1,
+        },
+        include: {
+          author: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+          votes: true,
+        },
+      });
+
+      if (retro.maxCommentsPerParticipant != null) {
+        const newCount = await this.prisma.card.count({
+          where: { retroId, authorId: participant.id },
+        });
+        if (
+          newCount >= retro.maxCommentsPerParticipant &&
+          !participant.commentsReady
+        ) {
+          await this.prisma.participant.update({
+            where: { id: participant.id },
+            data: { commentsReady: true },
+          });
+          this.events.emit(retroId, 'comments-ready-changed', {
+            participantId: participant.id,
+            ready: true,
+          });
+        }
+      }
+
+      this.events.emit(retroId, 'card-created', card);
+      return card;
+    } catch (err) {
+      if (imageUrl) {
+        await this.uploads.deleteByPublicUrl(imageUrl);
+      }
+      throw err;
+    }
   }
 
   async setCommentsReady(user: JwtPayload, retroId: string, ready: boolean) {
@@ -479,6 +508,12 @@ export class RetrosService {
       if (!column) throw new NotFoundException('Column not found');
     }
 
+    const nextContent =
+      dto.content !== undefined ? dto.content.trim() : card.content;
+    if (!nextContent && !card.imageUrl) {
+      throw new BadRequestException('Comment needs text or an image');
+    }
+
     const updated = await this.prisma.card.update({
       where: { id: cardId },
       data: {
@@ -496,6 +531,103 @@ export class RetrosService {
       },
     });
 
+    this.events.emit(retroId, 'card-updated', updated);
+    return updated;
+  }
+
+  async setCardImage(
+    user: JwtPayload,
+    retroId: string,
+    cardId: string,
+    file: Express.Multer.File,
+  ) {
+    const retro = await this.getRetroOrThrow(retroId);
+    if (
+      retro.status !== RetroStatus.comments &&
+      retro.status !== RetroStatus.grouping
+    ) {
+      throw new BadRequestException('Cards can only be edited in early phases');
+    }
+
+    const participant = await this.requireParticipant(user, retroId);
+    const card = await this.prisma.card.findFirst({
+      where: { id: cardId, retroId },
+    });
+    if (!card) throw new NotFoundException('Card not found');
+    if (card.authorId !== participant.id) {
+      throw new ForbiddenException('Can only edit your own cards');
+    }
+
+    this.uploads.assertCardImage(file);
+    const imageUrl = await this.uploads.saveCardImage(retroId, file);
+    const previousUrl = card.imageUrl;
+
+    try {
+      const updated = await this.prisma.card.update({
+        where: { id: cardId },
+        data: { imageUrl },
+        include: {
+          author: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+          votes: true,
+        },
+      });
+      if (previousUrl) {
+        await this.uploads.deleteByPublicUrl(previousUrl);
+      }
+      this.events.emit(retroId, 'card-updated', updated);
+      return updated;
+    } catch (err) {
+      await this.uploads.deleteByPublicUrl(imageUrl);
+      throw err;
+    }
+  }
+
+  async deleteCardImage(
+    user: JwtPayload,
+    retroId: string,
+    cardId: string,
+  ) {
+    const retro = await this.getRetroOrThrow(retroId);
+    if (
+      retro.status !== RetroStatus.comments &&
+      retro.status !== RetroStatus.grouping
+    ) {
+      throw new BadRequestException('Cards can only be edited in early phases');
+    }
+
+    const participant = await this.requireParticipant(user, retroId);
+    const card = await this.prisma.card.findFirst({
+      where: { id: cardId, retroId },
+    });
+    if (!card) throw new NotFoundException('Card not found');
+    if (card.authorId !== participant.id) {
+      throw new ForbiddenException('Can only edit your own cards');
+    }
+
+    if (!card.content.trim() && card.imageUrl) {
+      throw new BadRequestException(
+        'Cannot remove the only content of the comment',
+      );
+    }
+
+    const previousUrl = card.imageUrl;
+    const updated = await this.prisma.card.update({
+      where: { id: cardId },
+      data: { imageUrl: null },
+      include: {
+        author: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+        votes: true,
+      },
+    });
+    await this.uploads.deleteByPublicUrl(previousUrl);
     this.events.emit(retroId, 'card-updated', updated);
     return updated;
   }
@@ -522,6 +654,7 @@ export class RetrosService {
     }
 
     await this.prisma.card.delete({ where: { id: cardId } });
+    await this.uploads.deleteByPublicUrl(card.imageUrl);
     this.events.emit(retroId, 'card-deleted', { id: cardId, retroId });
     return { deleted: true };
   }
@@ -828,6 +961,7 @@ export class RetrosService {
         return {
           ...card,
           content: '•••••',
+          imageUrl: null,
           hidden: true,
           authorName: card.isAnonymous ? 'Anonymous' : 'Hidden',
         };
