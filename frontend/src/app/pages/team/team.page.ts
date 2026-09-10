@@ -24,6 +24,25 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
           >
         </div>
 
+        <section class="card panel invite-panel">
+          <h2>Invitar miembros</h2>
+          <p class="invite-hint">
+            Compartí este enlace para que se sumen al equipo (con cuenta). También
+            pueden pegar el código en el panel.
+          </p>
+          <div class="invite-row">
+            <code>{{ teamInviteUrl(t.inviteCode) }}</code>
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              [class.copied]="inviteCopied()"
+              (click)="copyTeamInvite(t.inviteCode)"
+            >
+              {{ inviteCopied() ? 'Copiado' : 'Copiar enlace' }}
+            </button>
+          </div>
+        </section>
+
         @if (reminder()) {
           <div class="card reminder">
             Hay {{ reminder() }} acciones pendientes de retros anteriores.
@@ -192,6 +211,38 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
       color: var(--color-brand);
       font-weight: 600;
     }
+    .invite-panel {
+      padding: 1.15rem 1.25rem;
+      margin-bottom: 1.25rem;
+      h2 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+    }
+    .invite-hint {
+      margin: 0 0 0.85rem;
+      color: var(--color-text-muted);
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+    .invite-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.65rem;
+      align-items: center;
+      code {
+        font-size: 0.8rem;
+        word-break: break-all;
+        background: var(--color-bg-muted);
+        padding: 0.55rem 0.7rem;
+        border-radius: var(--radius);
+      }
+      .copied {
+        background: var(--color-brand);
+        color: white;
+        border-color: var(--color-brand);
+      }
+    }
+    @media (max-width: 640px) {
+      .invite-row { grid-template-columns: 1fr; }
+    }
   `,
 })
 export class TeamPage implements OnInit {
@@ -211,6 +262,8 @@ export class TeamPage implements OnInit {
   allowAnonymous = true;
   error = signal('');
   reminder = signal<number | null>(null);
+  inviteCopied = signal(false);
+  private inviteCopyTimer: ReturnType<typeof setTimeout> | null = null;
 
   phaseLabel = (s: keyof typeof PHASE_LABELS) => PHASE_LABELS[s];
 
@@ -224,6 +277,23 @@ export class TeamPage implements OnInit {
     return this.team()?.members.some(
       (m) => m.user.id === userId && m.role === 'facilitator',
     );
+  }
+
+  teamInviteUrl(inviteCode: string) {
+    return `${window.location.origin}/join-team/${inviteCode}`;
+  }
+
+  async copyTeamInvite(inviteCode: string) {
+    try {
+      await navigator.clipboard.writeText(this.teamInviteUrl(inviteCode));
+      this.inviteCopied.set(true);
+    } catch {
+      this.inviteCopied.set(false);
+      this.error.set('No se pudo copiar el enlace');
+      return;
+    }
+    if (this.inviteCopyTimer) clearTimeout(this.inviteCopyTimer);
+    this.inviteCopyTimer = setTimeout(() => this.inviteCopied.set(false), 2200);
   }
 
   deleteRetro(id: string, title: string) {

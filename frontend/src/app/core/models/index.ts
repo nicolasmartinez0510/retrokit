@@ -220,6 +220,7 @@ export interface RetroBoard {
     votesRemaining: number;
     commentsReady: boolean;
     votesReady: boolean;
+    isFacilitator?: boolean;
   };
 }
 

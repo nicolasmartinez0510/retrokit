@@ -150,29 +150,11 @@ export class RetrosService {
       if (user.type !== 'user') {
         throw new ForbiddenException('Login required to join as member');
       }
-      await this.teams.assertMember(user.sub, retro.teamId);
-
-      let participant = await this.prisma.participant.findFirst({
-        where: { retroId: retro.id, userId: user.sub, isGuest: false },
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-        },
-      });
-
-      if (!participant) {
-        participant = await this.prisma.participant.create({
-          data: {
-            retroId: retro.id,
-            userId: user.sub,
-            isGuest: false,
-          },
-          include: {
-            user: { select: { id: true, name: true, email: true } },
-          },
-        });
-        this.events.emit(retro.id, 'participant-joined', participant);
-      }
-
+      const participant = await this.ensureMemberParticipant(
+        user.sub,
+        retro.id,
+        retro.teamId,
+      );
       return {
         accessToken: null,
         retroId: retro.id,
@@ -214,6 +196,25 @@ export class RetrosService {
     }
 
     throw new NotFoundException('Invalid invite code');
+  }
+
+  /** Team member joins a retro by id (no invite code). */
+  async joinById(user: JwtPayload, retroId: string) {
+    if (user.type !== 'user') {
+      throw new ForbiddenException('Login required to join as member');
+    }
+    const retro = await this.getRetroOrThrow(retroId);
+    const participant = await this.ensureMemberParticipant(
+      user.sub,
+      retro.id,
+      retro.teamId,
+    );
+    return {
+      accessToken: null,
+      retroId: retro.id,
+      participant,
+      type: 'member' as const,
+    };
   }
 
   async getOne(user: JwtPayload, retroId: string) {
@@ -811,10 +812,9 @@ export class RetrosService {
     if (!retro) throw new NotFoundException('Retrospective not found');
 
     const participant = await this.findParticipant(user, retroId);
+    // Hide others' cards for every live viewer in comments (incl. spectators).
     const hideOthers =
-      !forReport &&
-      retro.status === RetroStatus.comments &&
-      !!participant;
+      !forReport && retro.status === RetroStatus.comments;
 
     const cards = retro.cards.map((card) => {
       const authorName = card.isAnonymous
@@ -823,7 +823,8 @@ export class RetrosService {
           card.author.user?.name ??
           'Participant');
 
-      if (hideOthers && card.authorId !== participant!.id) {
+      const isOwn = !!participant && card.authorId === participant.id;
+      if (hideOthers && !isOwn) {
         return {
           ...card,
           content: '•••••',
@@ -911,8 +912,40 @@ export class RetrosService {
         votesRemaining: Math.max(0, retro.votesPerParticipant - myVoteTotal),
         commentsReady: participant?.commentsReady ?? false,
         votesReady: participant?.votesReady ?? false,
+        isFacilitator: await this.isFacilitator(user, retroId),
       },
     };
+  }
+
+  private async ensureMemberParticipant(
+    userId: string,
+    retroId: string,
+    teamId: string,
+  ) {
+    await this.teams.assertMember(userId, teamId);
+
+    let participant = await this.prisma.participant.findFirst({
+      where: { retroId, userId, isGuest: false },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    if (!participant) {
+      participant = await this.prisma.participant.create({
+        data: {
+          retroId,
+          userId,
+          isGuest: false,
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+      });
+      this.events.emit(retroId, 'participant-joined', participant);
+    }
+
+    return participant;
   }
 
   private async loadAccess(user: JwtPayload, retroId: string) {

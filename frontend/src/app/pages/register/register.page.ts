@@ -1,7 +1,12 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
+
+function safeReturnUrl(value: string | null): string | null {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return null;
+  return value;
+}
 
 @Component({
   selector: 'app-register-page',
@@ -38,7 +43,7 @@ import { AuthService } from '../../core/auth.service';
         </button>
         <p class="switch">
           ¿Ya tienes cuenta?
-          <a routerLink="/login">Inicia sesión</a>
+          <a routerLink="/login" [queryParams]="loginParams">Inicia sesión</a>
         </p>
       </form>
     </div>
@@ -63,15 +68,25 @@ import { AuthService } from '../../core/auth.service';
     .switch { font-size: 0.9rem; color: var(--color-text-muted); text-align: center; }
   `,
 })
-export class RegisterPage {
+export class RegisterPage implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   name = '';
   email = '';
   password = '';
   loading = signal(false);
   error = signal('');
+  private returnUrl: string | null = null;
+  loginParams: Record<string, string> = {};
+
+  ngOnInit() {
+    this.returnUrl = safeReturnUrl(
+      this.route.snapshot.queryParamMap.get('returnUrl'),
+    );
+    this.loginParams = this.returnUrl ? { returnUrl: this.returnUrl } : {};
+  }
 
   submit() {
     this.loading.set(true);
@@ -81,7 +96,7 @@ export class RegisterPage {
       .subscribe({
         next: () => {
           this.loading.set(false);
-          void this.router.navigateByUrl('/dashboard');
+          void this.router.navigateByUrl(this.returnUrl || '/dashboard');
         },
         error: (err) => {
           this.loading.set(false);

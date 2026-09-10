@@ -20,6 +20,8 @@ import { SocketService } from '../../core/socket.service';
 
 type SortMode = 'most' | 'least' | 'original';
 
+const spectateKey = (id: string) => `retrokit:spectate:${id}`;
+
 @Component({
   selector: 'app-retro-page',
   imports: [FormsModule, RouterLink],
@@ -44,6 +46,8 @@ export class RetroPage implements OnInit, OnDestroy {
   sortMode = signal<SortMode>('most');
   showSettings = false;
   showInvite = false;
+  showJoinModal = signal(false);
+  joining = signal(false);
   copiedKind = signal<'guest' | 'member' | null>(null);
   copyToast = signal('');
   private copyToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -76,11 +80,21 @@ export class RetroPage implements OnInit, OnDestroy {
     return PHASES[idx + 1].key;
   });
 
-  isFacilitator = computed(() => this.auth.isUser());
+  isParticipant = computed(() => !!this.retro()?.me?.participantId);
+
+  isSpectator = computed(
+    () =>
+      !!this.retro() && this.auth.isUser() && !this.isParticipant(),
+  );
+
+  isFacilitator = computed(
+    () =>
+      !!this.retro()?.me?.isFacilitator && this.isParticipant(),
+  );
 
   canComment = computed(() => {
     const r = this.retro();
-    if (!r?.me) return false;
+    if (!r?.me?.participantId) return false;
     if (r.status !== 'comments' && r.status !== 'grouping') return false;
     if (r.maxCommentsPerParticipant == null) return true;
     return r.me.myCommentCount < r.maxCommentsPerParticipant;
@@ -88,7 +102,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   readyLocked = computed(() => {
     const r = this.retro();
-    if (!r?.me) return false;
+    if (!r?.me?.participantId) return true;
     if (r.status === 'voting') {
       return r.me.myVoteTotal >= r.votesPerParticipant;
     }
@@ -136,9 +150,89 @@ export class RetroPage implements OnInit, OnDestroy {
         this.maxVotesPerCard = r.maxVotesPerCard;
         this.timerSeconds = r.timerSeconds ?? 300;
         this.syncTimer(r.timerEndsAt);
+        this.maybeShowJoinModal(r);
       },
       error: (e) => this.error.set(e?.error?.message || 'Error al cargar'),
     });
+  }
+
+  private maybeShowJoinModal(r: RetroBoard) {
+    if (!this.auth.isUser()) {
+      this.showJoinModal.set(false);
+      return;
+    }
+    if (r.me?.participantId) {
+      this.showJoinModal.set(false);
+      this.clearSpectateChoice(r.id);
+      return;
+    }
+    if (r.status === 'closed') {
+      this.showJoinModal.set(false);
+      return;
+    }
+    if (this.hasSpectateChoice(r.id)) {
+      this.showJoinModal.set(false);
+      return;
+    }
+    this.showJoinModal.set(true);
+  }
+
+  joinAsParticipant() {
+    const r = this.retro();
+    if (!r || this.joining()) return;
+    this.joining.set(true);
+    this.error.set('');
+    this.api.joinRetroById(r.id).subscribe({
+      next: () => {
+        this.clearSpectateChoice(r.id);
+        this.showJoinModal.set(false);
+        this.joining.set(false);
+        this.reload(r.id);
+      },
+      error: (e) => {
+        this.joining.set(false);
+        this.error.set(e?.error?.message || 'No se pudo unir a la retrospectiva');
+      },
+    });
+  }
+
+  chooseSpectate() {
+    const r = this.retro();
+    if (!r) return;
+    this.rememberSpectateChoice(r.id);
+    this.showJoinModal.set(false);
+  }
+
+  private hasSpectateChoice(id: string): boolean {
+    try {
+      return sessionStorage.getItem(spectateKey(id)) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private rememberSpectateChoice(id: string) {
+    try {
+      sessionStorage.setItem(spectateKey(id), '1');
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }
+
+  private clearSpectateChoice(id: string) {
+    try {
+      sessionStorage.removeItem(spectateKey(id));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  participantDisplayName(p: {
+    guestName?: string | null;
+    isGuest: boolean;
+    user?: { name: string } | null;
+  }): string {
+    return p.guestName ?? p.user?.name ?? (p.isGuest ? 'Invitado' : 'Participante');
   }
 
   cardsForColumn(columnId: string): Card[] {
@@ -308,7 +402,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   selectForGroup(cardId: string) {
     const r = this.retro();
-    if (!r || r.status !== 'grouping') return;
+    if (!r || r.status !== 'grouping' || this.isSpectator()) return;
     if (!this.selectedCardId) {
       this.selectedCardId = cardId;
       return;
@@ -328,7 +422,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   changeVote(card: Card, delta: number) {
     const r = this.retro();
-    if (!r) return;
+    if (!r || this.isSpectator()) return;
     const next = Math.max(0, this.myVotesOn(card) + delta);
     if (next > r.maxVotesPerCard) {
       this.error.set(`Máximo ${r.maxVotesPerCard} votos por tarjeta`);

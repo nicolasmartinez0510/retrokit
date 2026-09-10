@@ -74,6 +74,10 @@ export class ApiService {
     });
   }
 
+  joinRetroById(id: string) {
+    return this.http.post<JoinRetroResponse>(`${this.base}/retros/${id}/join`, {});
+  }
+
   getRetro(id: string) {
     return this.http.get<RetroBoard>(`${this.base}/retros/${id}`);
   }

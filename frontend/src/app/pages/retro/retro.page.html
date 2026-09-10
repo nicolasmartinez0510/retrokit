@@ -4,29 +4,43 @@
       <div>
         <p class="eyebrow">{{ r.team?.name }}</p>
         <h1>{{ r.title }}</h1>
+        @if (isSpectator()) {
+          <p class="spectator-badge">Modo espectador</p>
+        }
       </div>
       <div class="header-actions">
-        @if (timerLeft() !== null) {
-          <span class="timer">⏱ {{ formatTime(timerLeft()!) }}</span>
-        }
-        <button type="button" class="btn-secondary btn-sm" (click)="showInvite = !showInvite">
-          Invitar
-        </button>
-        @if (isFacilitator()) {
-          <button type="button" class="btn-ghost btn-sm" (click)="showSettings = !showSettings">
-            Ajustes
+        @if (!isSpectator()) {
+          @if (timerLeft() !== null) {
+            <span class="timer">⏱ {{ formatTime(timerLeft()!) }}</span>
+          }
+          <button type="button" class="btn-secondary btn-sm" (click)="showInvite = !showInvite">
+            Invitar
           </button>
-          <div class="timer-controls">
-            <select [(ngModel)]="timerSeconds" name="timerPreset" class="timer-select">
-              @for (opt of timerPresets; track opt.value) {
-                <option [ngValue]="opt.value">{{ opt.label }}</option>
-              }
-            </select>
-            <button type="button" class="btn-ghost btn-sm" (click)="startTimer()">Iniciar</button>
-            <button type="button" class="btn-ghost btn-sm" (click)="stopTimer()">Stop</button>
-          </div>
-          <button type="button" class="btn-danger btn-sm" (click)="deleteRetro()">
-            Borrar retro
+          @if (isFacilitator()) {
+            <button type="button" class="btn-ghost btn-sm" (click)="showSettings = !showSettings">
+              Ajustes
+            </button>
+            <div class="timer-controls">
+              <select [(ngModel)]="timerSeconds" name="timerPreset" class="timer-select">
+                @for (opt of timerPresets; track opt.value) {
+                  <option [ngValue]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+              <button type="button" class="btn-ghost btn-sm" (click)="startTimer()">Iniciar</button>
+              <button type="button" class="btn-ghost btn-sm" (click)="stopTimer()">Stop</button>
+            </div>
+            <button type="button" class="btn-danger btn-sm" (click)="deleteRetro()">
+              Borrar retro
+            </button>
+          }
+        } @else if (r.status !== 'closed') {
+          <button
+            type="button"
+            class="btn-primary btn-sm"
+            [disabled]="joining()"
+            (click)="joinAsParticipant()"
+          >
+            {{ joining() ? 'Uniéndote…' : 'Unirme a la retro' }}
           </button>
         }
       </div>
@@ -52,7 +66,20 @@
       <p class="form-error banner-error">{{ error() }}</p>
     }
 
-    @if (showInvite) {
+    @if (isSpectator()) {
+      <div class="card panel participants-panel">
+        <h3>Participantes</h3>
+        <div class="participants-list">
+          @for (p of r.participants; track p.id) {
+            <span class="badge">{{ participantDisplayName(p) }}</span>
+          } @empty {
+            <p class="empty-participants">Todavía no hay participantes.</p>
+          }
+        </div>
+      </div>
+    }
+
+    @if (showInvite && !isSpectator()) {
       <div class="card panel">
         <h3>Enlaces de invitación</h3>
         <div class="invite-row">
@@ -114,22 +141,24 @@
     @if (r.status === 'comments' || r.status === 'grouping' || r.status === 'voting' || r.status === 'actions') {
       <div class="meta-bar">
         @if (r.status === 'comments' || r.status === 'grouping') {
-          <span>
-            Tus comentarios: {{ r.me?.myCommentCount || 0 }}
-            @if (r.maxCommentsPerParticipant != null) {
-              / {{ r.maxCommentsPerParticipant }}
-            }
-          </span>
-          <label class="ready-toggle" [class.locked]="readyLocked()">
-            <input
-              type="checkbox"
-              [checked]="!!r.me?.commentsReady"
-              [disabled]="readyLocked()"
-              (change)="toggleCommentsReady($any($event.target).checked)"
-              name="commentsReady"
-            />
-            Estoy listo
-          </label>
+          @if (isParticipant()) {
+            <span>
+              Tus comentarios: {{ r.me?.myCommentCount || 0 }}
+              @if (r.maxCommentsPerParticipant != null) {
+                / {{ r.maxCommentsPerParticipant }}
+              }
+            </span>
+            <label class="ready-toggle" [class.locked]="readyLocked()">
+              <input
+                type="checkbox"
+                [checked]="!!r.me?.commentsReady"
+                [disabled]="readyLocked()"
+                (change)="toggleCommentsReady($any($event.target).checked)"
+                name="commentsReady"
+              />
+              Estoy listo
+            </label>
+          }
           @if (r.commentProgress; as progress) {
             <div class="comment-progress" [class.all-done]="progress.allDone">
               <strong>
@@ -152,19 +181,21 @@
           }
         }
         @if (r.status === 'voting') {
-          <span>
-            Tus votos: {{ r.me?.myVoteTotal || 0 }} / {{ r.votesPerParticipant }}
-          </span>
-          <label class="ready-toggle" [class.locked]="readyLocked()">
-            <input
-              type="checkbox"
-              [checked]="!!r.me?.votesReady"
-              [disabled]="readyLocked()"
-              (change)="toggleVotesReady($any($event.target).checked)"
-              name="votesReady"
-            />
-            Estoy listo
-          </label>
+          @if (isParticipant()) {
+            <span>
+              Tus votos: {{ r.me?.myVoteTotal || 0 }} / {{ r.votesPerParticipant }}
+            </span>
+            <label class="ready-toggle" [class.locked]="readyLocked()">
+              <input
+                type="checkbox"
+                [checked]="!!r.me?.votesReady"
+                [disabled]="readyLocked()"
+                (change)="toggleVotesReady($any($event.target).checked)"
+                name="votesReady"
+              />
+              Estoy listo
+            </label>
+          }
           @if (r.voteProgress; as progress) {
             <div class="comment-progress" [class.all-done]="progress.allDone">
               <strong>
@@ -197,7 +228,7 @@
             </select>
           </label>
         }
-        @if (r.status === 'grouping') {
+        @if (r.status === 'grouping' && isParticipant()) {
           <span class="hint">Selecciona dos tarjetas para agruparlas</span>
         }
       </div>
@@ -220,7 +251,7 @@
                   class="sticky"
                   [class.selected]="selectedCardId === card.id"
                   [class.hidden-card]="card.hidden"
-                  (click)="r.status === 'grouping' && editingCardId !== card.id && selectForGroup(card.id)"
+                  (click)="r.status === 'grouping' && isParticipant() && editingCardId !== card.id && selectForGroup(card.id)"
                 >
                   @if (editingCardId === card.id) {
                     <div class="card-edit" (click)="$event.stopPropagation()">
@@ -262,7 +293,7 @@
                   }
                   @if (r.status === 'voting' || r.status === 'actions') {
                     <div class="vote-row">
-                      @if (r.status === 'voting') {
+                      @if (r.status === 'voting' && isParticipant()) {
                         <button type="button" class="btn-ghost btn-sm" (click)="changeVote(card, -1); $event.stopPropagation()">−</button>
                         <span>{{ myVotesOn(card) }} / {{ r.maxVotesPerCard }}</span>
                         <button
@@ -298,7 +329,7 @@
                   Añadir
                 </button>
               </div>
-            } @else if (r.status === 'comments' && !canComment()) {
+            } @else if (r.status === 'comments' && isParticipant() && !canComment()) {
               <p class="limit-msg">Límite de comentarios alcanzado</p>
             }
           </section>
@@ -308,19 +339,23 @@
 
     @if (r.status === 'actions') {
       <div class="card panel action-panel">
-        <h3>Crear acción</h3>
-        <div class="action-form">
-          <input [(ngModel)]="actionTitle" name="actionTitle" placeholder="Descripción de la acción" />
-          <select [(ngModel)]="actionOwnerId" name="owner">
-            <option value="">Sin asignar</option>
-            @for (p of r.participants; track p.id) {
-              @if (p.user) {
-                <option [value]="p.user.id">{{ p.user.name }}</option>
+        @if (isParticipant()) {
+          <h3>Crear acción</h3>
+          <div class="action-form">
+            <input [(ngModel)]="actionTitle" name="actionTitle" placeholder="Descripción de la acción" />
+            <select [(ngModel)]="actionOwnerId" name="owner">
+              <option value="">Sin asignar</option>
+              @for (p of r.participants; track p.id) {
+                @if (p.user) {
+                  <option [value]="p.user.id">{{ p.user.name }}</option>
+                }
               }
-            }
-          </select>
-          <button type="button" class="btn-primary" (click)="createAction()">Agregar</button>
-        </div>
+            </select>
+            <button type="button" class="btn-primary" (click)="createAction()">Agregar</button>
+          </div>
+        } @else {
+          <h3>Acciones</h3>
+        }
         <ul class="action-list">
           @for (a of r.actionItems; track a.id) {
             <li>
@@ -329,12 +364,16 @@
                 <span class="badge">{{ a.owner.name }}</span>
               }
             </li>
+          } @empty {
+            @if (isSpectator()) {
+              <li class="empty-participants">Todavía no hay acciones.</li>
+            }
           }
         </ul>
       </div>
     }
 
-    @if (r.status === 'roti') {
+    @if (r.status === 'roti' && isParticipant()) {
       <div class="card panel roti-panel">
         <h2>ROTI — Return on Time Invested</h2>
         <p>¿Qué tan útil fue esta retrospectiva? (1–5)</p>
@@ -351,6 +390,14 @@
       </div>
     }
 
+    @if (r.status === 'roti' && isSpectator()) {
+      <div class="card panel roti-panel">
+        <h2>ROTI — Return on Time Invested</h2>
+        <p>Los participantes están valorando la retrospectiva.</p>
+        <a class="btn-secondary" [routerLink]="['/retros', r.id, 'report']">Ver reporte</a>
+      </div>
+    }
+
     @if (isFacilitator() && nextPhase() && r.status !== 'roti') {
       <footer class="facilitator-bar">
         <button type="button" class="btn-primary" (click)="advance()">
@@ -361,6 +408,35 @@
 
     @if (copyToast(); as msg) {
       <div class="copy-toast" role="status" aria-live="polite">{{ msg }}</div>
+    }
+
+    @if (showJoinModal()) {
+      <div class="join-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="join-modal-title">
+        <div class="card join-modal">
+          <h2 id="join-modal-title">¿Cómo querés entrar?</h2>
+          <p class="join-modal-copy">
+            Sos miembro del equipo. Podés unirte a la retrospectiva para participar, o mirar en modo espectador.
+          </p>
+          <div class="join-modal-actions">
+            <button
+              type="button"
+              class="btn-primary"
+              [disabled]="joining()"
+              (click)="joinAsParticipant()"
+            >
+              {{ joining() ? 'Uniéndote…' : 'Unirme a la retro' }}
+            </button>
+            <button
+              type="button"
+              class="btn-secondary"
+              [disabled]="joining()"
+              (click)="chooseSpectate()"
+            >
+              Entrar como espectador
+            </button>
+          </div>
+        </div>
+      </div>
     }
   </div>
 } @else {

@@ -44,6 +44,12 @@ export class RetrosController {
     return this.retros.join(user, dto);
   }
 
+  @Post(':id/join')
+  @UseGuards(JwtAuthGuard)
+  joinById(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.retros.joinById(user, id);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   getOne(@CurrentUser() user: JwtPayload, @Param('id') id: string) {

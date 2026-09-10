@@ -421,6 +421,69 @@
   animation: copy-toast-in 0.2s ease;
 }
 
+.spectator-badge {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-brand);
+}
+
+.participants-panel {
+  margin-bottom: 1rem;
+  padding: 1rem 1.15rem;
+}
+
+.participants-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.empty-participants {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.join-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(26, 26, 26, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.join-modal {
+  width: min(420px, 100%);
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.join-modal h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.join-modal-copy {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.join-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
 @keyframes copy-toast-in {
   from {
     opacity: 0;

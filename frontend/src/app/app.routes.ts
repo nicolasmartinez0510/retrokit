@@ -84,5 +84,10 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./pages/join/join.page').then((m) => m.JoinPage),
   },
+  {
+    path: 'join-team/:code',
+    loadComponent: () =>
+      import('./pages/join-team/join-team.page').then((m) => m.JoinTeamPage),
+  },
   { path: '**', redirectTo: '' },
 ];
