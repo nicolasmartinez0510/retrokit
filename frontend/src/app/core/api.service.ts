@@ -59,6 +59,34 @@ export class ApiService {
     );
   }
 
+  uploadTemplateBackground(id: string, file: File) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<Template>(
+      `${this.base}/templates/${id}/background`,
+      form,
+    );
+  }
+
+  deleteTemplateBackground(id: string) {
+    return this.http.delete<Template>(`${this.base}/templates/${id}/background`);
+  }
+
+  uploadColumnLogo(templateId: string, columnId: string, file: File) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<Template>(
+      `${this.base}/templates/${templateId}/columns/${columnId}/logo`,
+      form,
+    );
+  }
+
+  deleteColumnLogo(templateId: string, columnId: string) {
+    return this.http.delete<Template>(
+      `${this.base}/templates/${templateId}/columns/${columnId}/logo`,
+    );
+  }
+
   // Retros
   createRetro(payload: CreateRetroPayload) {
     return this.http.post<RetroBoard & { openActionsReminder?: number }>(

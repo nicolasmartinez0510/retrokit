@@ -1,7 +1,45 @@
+.retro-scene {
+  position: relative;
+  min-height: calc(100vh - 64px);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.retro-scene.has-image::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-scene-veil) 46%, transparent) 0%,
+    color-mix(in srgb, var(--color-scene-veil) 22%, transparent) 9rem,
+    color-mix(in srgb, var(--color-scene-veil) 8%, transparent) 14rem,
+    transparent 20rem
+  );
+}
+
 .retro-shell {
+  position: relative;
+  z-index: 1;
   max-width: 1400px;
   margin: 0 auto;
   padding: 1rem 1rem 5rem;
+}
+
+.retro-scene.has-image .header-actions {
+  .btn-ghost,
+  .btn-secondary,
+  .btn-danger,
+  .timer-select {
+    background: color-mix(in srgb, var(--color-scene-veil) 72%, transparent);
+  }
+
+  .btn-ghost {
+    border-color: var(--color-border);
+  }
 }
 
 .retro-header {
@@ -256,7 +294,20 @@
       font-weight: 700;
       margin-top: 0.1rem;
     }
+
+    .col-logo {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+      flex-shrink: 0;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.7);
+    }
   }
+}
+
+.retro-scene.has-theme .column {
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
 }
 
 .cards {

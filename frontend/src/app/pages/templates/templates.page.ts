@@ -1,7 +1,9 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
+import { httpErrorMessage } from '../../core/http-error';
 import { Template } from '../../core/models';
+import { ToastService } from '../../core/toast.service';
 
 @Component({
   selector: 'app-templates-page',
@@ -18,10 +20,6 @@ import { Template } from '../../core/models';
         <a class="btn-primary" routerLink="/templates/new">Nueva plantilla</a>
       </div>
 
-      @if (error()) {
-        <p class="form-error">{{ error() }}</p>
-      }
-
       <div class="template-list">
         @for (tpl of templates(); track tpl.id) {
           <div class="card template-card">
@@ -34,7 +32,12 @@ import { Template } from '../../core/models';
               <ul class="cols">
                 @for (col of tpl.columns; track col.id) {
                   <li>
-                    <strong>{{ col.icon || '•' }} {{ col.title }}</strong>
+                    @if (col.logoUrl) {
+                      <img class="col-logo-sm" [src]="col.logoUrl" alt="" />
+                    } @else if (col.icon) {
+                      <span class="col-icon">{{ col.icon }}</span>
+                    }
+                    <strong>{{ col.title }}</strong>
                     @if (col.description) {
                       — {{ col.description }}
                     }
@@ -108,6 +111,20 @@ import { Template } from '../../core/models';
         color: var(--color-text);
       }
     }
+    .col-logo-sm,
+    .col-icon {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+      vertical-align: middle;
+      margin-right: 0.25rem;
+    }
+    .col-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+    }
     .template-actions {
       display: flex;
       gap: 0.4rem;
@@ -122,9 +139,9 @@ import { Template } from '../../core/models';
 })
 export class TemplatesPage implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly toast = inject(ToastService);
 
   templates = signal<Template[]>([]);
-  error = signal('');
 
   ngOnInit() {
     this.reload();
@@ -134,7 +151,9 @@ export class TemplatesPage implements OnInit {
     this.api.listTemplates().subscribe({
       next: (list) => this.templates.set(list),
       error: (e) =>
-        this.error.set(e?.error?.message || 'No se pudieron cargar las plantillas'),
+        this.toast.error(
+          httpErrorMessage(e, 'No se pudieron cargar las plantillas'),
+        ),
     });
   }
 
@@ -149,11 +168,10 @@ export class TemplatesPage implements OnInit {
     this.api.deleteTemplate(tpl.id).subscribe({
       next: () => {
         this.templates.set(this.templates().filter((t) => t.id !== tpl.id));
+        this.toast.ok('Plantilla borrada');
       },
       error: (e) =>
-        this.error.set(
-          e?.error?.message || 'No se pudo borrar la plantilla',
-        ),
+        this.toast.error(httpErrorMessage(e, 'No se pudo borrar la plantilla')),
     });
   }
 }

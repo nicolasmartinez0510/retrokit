@@ -102,11 +102,17 @@ export class RetrosService {
         teamId: dto.teamId,
         templateId: dto.templateId,
         title: dto.title.trim(),
-        maxCommentsPerParticipant: dto.maxCommentsPerParticipant ?? null,
-        votesPerParticipant: dto.votesPerParticipant ?? 5,
-        maxVotesPerCard: dto.maxVotesPerCard ?? 2,
+        maxCommentsPerParticipant:
+          dto.maxCommentsPerParticipant !== undefined
+            ? dto.maxCommentsPerParticipant
+            : (template.maxCommentsPerParticipant ?? null),
+        votesPerParticipant:
+          dto.votesPerParticipant ?? template.votesPerParticipant ?? 5,
+        maxVotesPerCard: dto.maxVotesPerCard ?? template.maxVotesPerCard ?? 2,
         allowAnonymous: dto.allowAnonymous ?? true,
         timerSeconds: dto.timerSeconds ?? null,
+        backgroundColor: template.backgroundColor,
+        backgroundImageUrl: template.backgroundImageUrl,
         guestInviteCode,
         memberInviteCode,
         columns: {
@@ -114,6 +120,7 @@ export class RetrosService {
             title: c.title,
             description: c.description,
             icon: c.icon,
+            logoUrl: c.logoUrl,
             position: c.position,
           })),
         },

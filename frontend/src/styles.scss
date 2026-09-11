@@ -16,6 +16,7 @@
   --color-overlay: rgba(26, 26, 26, 0.45);
   --color-focus-ring: rgba(0, 138, 206, 0.2);
   --color-chrome: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  --color-scene-veil: var(--color-bg-muted);
   --color-toast-bg: #1a1a1a;
   --color-toast-fg: #ffffff;
   --radius: 12px;
@@ -43,6 +44,7 @@
   --color-overlay: rgba(0, 0, 0, 0.6);
   --color-focus-ring: rgba(0, 138, 206, 0.35);
   --color-chrome: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  --color-scene-veil: var(--color-bg);
   --color-toast-bg: #e8eef2;
   --color-toast-fg: #152028;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 138, 206, 0.12);
@@ -212,6 +214,44 @@ p {
   margin-top: 0.5rem;
 }
 
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  z-index: 80;
+  transform: translateX(-50%);
+  max-width: min(36rem, calc(100vw - 2rem));
+  margin: 0;
+  border: none;
+  cursor: pointer;
+  background: var(--color-toast-bg);
+  color: var(--color-toast-fg);
+  padding: 0.75rem 1.15rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: var(--shadow);
+  animation: app-toast-in 0.2s ease;
+
+  &.error {
+    background: var(--color-danger);
+    color: #fff;
+  }
+}
+
+@keyframes app-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -281,6 +321,7 @@ p {
     --color-overlay: rgba(26, 26, 26, 0.45);
     --color-focus-ring: rgba(0, 138, 206, 0.2);
     --color-chrome: #ffffff;
+    --color-scene-veil: #f8f8f8;
     --color-toast-bg: #1a1a1a;
     --color-toast-fg: #ffffff;
     --shadow: none;

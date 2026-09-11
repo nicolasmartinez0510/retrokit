@@ -33,7 +33,12 @@ import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
         <section class="card block">
           <h2>Comentarios y votos</h2>
           @for (col of r.columns; track col.id) {
-            <h3>{{ col.icon }} {{ col.title }}</h3>
+            <h3>
+              @if (col.logoUrl) {
+                <img class="col-logo-sm" [src]="col.logoUrl" alt="" />
+              }
+              {{ col.icon }} {{ col.title }}
+            </h3>
             <ul>
               @for (card of cardsIn(col.id); track card.id) {
                 <li>
@@ -83,6 +88,13 @@ import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
       margin: 0.35rem 0;
       object-fit: contain;
       border-radius: 4px;
+    }
+    .col-logo-sm {
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+      vertical-align: middle;
+      margin-right: 0.3rem;
     }
     .actions { display: flex; gap: 0.5rem; }
     @media print {

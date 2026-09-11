@@ -182,6 +182,9 @@ async function upsertTemplate(t) {
       data: {
         name: t.name,
         description: t.description,
+        maxCommentsPerParticipant: 3,
+        votesPerParticipant: 5,
+        maxVotesPerCard: 2,
         columns: { create: t.columns },
       },
     });

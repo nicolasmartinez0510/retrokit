@@ -61,11 +61,16 @@ model TeamMember {
 }
 
 model Template {
-  id             String           @id @default(cuid())
-  name           String
-  description    String?
-  columns        TemplateColumn[]
-  retrospectives Retrospective[]
+  id                          String           @id @default(cuid())
+  name                        String
+  description                 String?
+  maxCommentsPerParticipant   Int?
+  votesPerParticipant         Int              @default(5)
+  maxVotesPerCard             Int              @default(2)
+  backgroundColor             String?
+  backgroundImageUrl          String?
+  columns                     TemplateColumn[]
+  retrospectives              Retrospective[]
 }
 
 model TemplateColumn {
@@ -74,6 +79,7 @@ model TemplateColumn {
   title       String
   description String?
   icon        String?
+  logoUrl     String?
   position    Int
   template    Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
 }
@@ -92,6 +98,8 @@ model Retrospective {
   allowAnonymous            Boolean        @default(true)
   timerSeconds              Int?
   timerEndsAt               DateTime?
+  backgroundColor           String?
+  backgroundImageUrl        String?
   createdAt                 DateTime       @default(now())
   closedAt                  DateTime?
   team                      Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -111,6 +119,7 @@ model RetroColumn {
   title       String
   description String?
   icon        String?
+  logoUrl     String?
   position    Int
   retro       Retrospective @relation(fields: [retroId], references: [id], onDelete: Cascade)
   cards       Card[]

@@ -58,7 +58,12 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
             </div>
             <div class="field">
               <label>Plantilla</label>
-              <select [(ngModel)]="templateId" name="templateId" required>
+              <select
+                [ngModel]="templateId"
+                (ngModelChange)="onTemplateChange($event)"
+                name="templateId"
+                required
+              >
                 @for (tpl of templates(); track tpl.id) {
                   <option [value]="tpl.id">{{ tpl.name }}</option>
                 }
@@ -68,6 +73,9 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
                 <ul class="template-cols">
                   @for (col of tpl.columns; track col.id) {
                     <li>
+                      @if (col.logoUrl) {
+                        <img class="col-logo-sm" [src]="col.logoUrl" alt="" />
+                      }
                       <strong>{{ col.icon }} {{ col.title }}</strong>
                       @if (col.description) {
                         — {{ col.description }}
@@ -183,6 +191,13 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
       li { margin-bottom: 0.25rem; }
       strong { color: var(--color-text); }
     }
+    .col-logo-sm {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+      vertical-align: middle;
+      margin-right: 0.25rem;
+    }
     .section { margin-bottom: 1.5rem; h2 { margin-bottom: 0.75rem; font-size: 1.1rem; } }
     .members { display: flex; flex-wrap: wrap; gap: 0.5rem; }
     .retro-list { display: flex; flex-direction: column; gap: 0.6rem; }
@@ -271,6 +286,18 @@ export class TeamPage implements OnInit {
     return this.templates().find((t) => t.id === this.templateId) ?? null;
   }
 
+  onTemplateChange(id: string) {
+    this.templateId = id;
+    this.applyDefaults(this.selectedTemplate());
+  }
+
+  applyDefaults(tpl: Template | null) {
+    if (!tpl) return;
+    this.maxComments = tpl.maxCommentsPerParticipant ?? null;
+    this.votesPerParticipant = tpl.votesPerParticipant ?? 5;
+    this.maxVotesPerCard = tpl.maxVotesPerCard ?? 2;
+  }
+
   isFacilitator() {
     const userId = this.auth.user()?.id;
     if (!userId) return false;
@@ -323,7 +350,10 @@ export class TeamPage implements OnInit {
     this.api.getTeam(id).subscribe((t) => this.team.set(t));
     this.api.listTemplates().subscribe((t) => {
       this.templates.set(t);
-      if (t[0]) this.templateId = t[0].id;
+      if (t[0]) {
+        this.templateId = t[0].id;
+        this.applyDefaults(t[0]);
+      }
     });
   }
 

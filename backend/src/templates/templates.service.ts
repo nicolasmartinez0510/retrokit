@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
+import { UploadsService } from '../uploads/uploads.service';
 import {
   CreateTemplateDto,
   TemplateColumnInputDto,
@@ -18,6 +19,7 @@ export class TemplatesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teams: TeamsService,
+    private readonly uploads: UploadsService,
   ) {}
 
   list() {
@@ -44,6 +46,13 @@ export class TemplatesService {
       data: {
         name: dto.name.trim(),
         description: dto.description?.trim() || null,
+        maxCommentsPerParticipant:
+          dto.maxCommentsPerParticipant !== undefined
+            ? dto.maxCommentsPerParticipant
+            : 3,
+        votesPerParticipant: dto.votesPerParticipant ?? 5,
+        maxVotesPerCard: dto.maxVotesPerCard ?? 2,
+        backgroundColor: dto.backgroundColor?.trim() || null,
         columns: {
           create: dto.columns.map((c, i) => this.columnData(c, i)),
         },
@@ -60,29 +69,46 @@ export class TemplatesService {
       this.assertValidColumns(dto.columns);
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      if (dto.name !== undefined || dto.description !== undefined) {
-        await tx.template.update({
-          where: { id },
-          data: {
-            ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-            ...(dto.description !== undefined
-              ? { description: dto.description?.trim() || null }
-              : {}),
-          },
-        });
-      }
+    const removedLogoUrls: string[] = [];
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.template.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.description !== undefined
+            ? { description: dto.description?.trim() || null }
+            : {}),
+          ...(dto.maxCommentsPerParticipant !== undefined
+            ? { maxCommentsPerParticipant: dto.maxCommentsPerParticipant }
+            : {}),
+          ...(dto.votesPerParticipant !== undefined
+            ? { votesPerParticipant: dto.votesPerParticipant }
+            : {}),
+          ...(dto.maxVotesPerCard !== undefined
+            ? { maxVotesPerCard: dto.maxVotesPerCard }
+            : {}),
+          ...(dto.backgroundColor !== undefined
+            ? { backgroundColor: dto.backgroundColor?.trim() || null }
+            : {}),
+        },
+      });
 
       if (dto.columns) {
         const incomingIds = dto.columns
           .map((c) => c.id)
           .filter((colId): colId is string => !!colId);
         const existingIds = existing.columns.map((c) => c.id);
-        const toDelete = existingIds.filter((colId) => !incomingIds.includes(colId));
+        const toDelete = existing.columns.filter(
+          (c) => !incomingIds.includes(c.id),
+        );
 
         if (toDelete.length) {
+          for (const col of toDelete) {
+            if (col.logoUrl) removedLogoUrls.push(col.logoUrl);
+          }
           await tx.templateColumn.deleteMany({
-            where: { id: { in: toDelete }, templateId: id },
+            where: { id: { in: toDelete.map((c) => c.id) }, templateId: id },
           });
         }
 
@@ -90,9 +116,17 @@ export class TemplatesService {
           const col = dto.columns[i];
           const data = this.columnData(col, i);
           if (col.id && existingIds.includes(col.id)) {
+            const prev = existing.columns.find((c) => c.id === col.id);
+            const extra =
+              data.icon && prev?.logoUrl
+                ? { logoUrl: null as string | null }
+                : {};
+            if ('logoUrl' in extra && extra.logoUrl === null && prev?.logoUrl) {
+              removedLogoUrls.push(prev.logoUrl);
+            }
             await tx.templateColumn.update({
               where: { id: col.id },
-              data,
+              data: { ...data, ...extra },
             });
           } else {
             await tx.templateColumn.create({
@@ -107,6 +141,12 @@ export class TemplatesService {
         include: { columns: columnInclude },
       });
     });
+
+    for (const url of removedLogoUrls) {
+      await this.deleteFileIfUnreferenced(url);
+    }
+
+    return updated;
   }
 
   async remove(userId: string, id: string) {
@@ -123,7 +163,83 @@ export class TemplatesService {
     }
 
     await this.prisma.template.delete({ where: { id } });
+    await this.uploads.deleteTemplateDir(id);
     return { deleted: true };
+  }
+
+  async uploadBackground(userId: string, id: string, file: Express.Multer.File) {
+    await this.teams.assertAnyFacilitator(userId);
+    const existing = await this.getOne(id);
+    const url = await this.uploads.saveTemplateBackground(id, file);
+    const updated = await this.prisma.template.update({
+      where: { id },
+      data: { backgroundImageUrl: url },
+      include: { columns: columnInclude },
+    });
+    await this.deleteFileIfUnreferenced(existing.backgroundImageUrl);
+    return updated;
+  }
+
+  async clearBackground(userId: string, id: string) {
+    await this.teams.assertAnyFacilitator(userId);
+    const existing = await this.getOne(id);
+    const updated = await this.prisma.template.update({
+      where: { id },
+      data: { backgroundImageUrl: null },
+      include: { columns: columnInclude },
+    });
+    await this.deleteFileIfUnreferenced(existing.backgroundImageUrl);
+    return updated;
+  }
+
+  async uploadColumnLogo(
+    userId: string,
+    templateId: string,
+    columnId: string,
+    file: Express.Multer.File,
+  ) {
+    await this.teams.assertAnyFacilitator(userId);
+    await this.getOne(templateId);
+    const column = await this.prisma.templateColumn.findFirst({
+      where: { id: columnId, templateId },
+    });
+    if (!column) throw new NotFoundException('Columna no encontrada');
+
+    const url = await this.uploads.saveColumnLogo(templateId, columnId, file);
+    await this.prisma.templateColumn.update({
+      where: { id: columnId },
+      data: { logoUrl: url, icon: null },
+    });
+    await this.deleteFileIfUnreferenced(column.logoUrl);
+    return this.getOne(templateId);
+  }
+
+  async clearColumnLogo(userId: string, templateId: string, columnId: string) {
+    await this.teams.assertAnyFacilitator(userId);
+    await this.getOne(templateId);
+    const column = await this.prisma.templateColumn.findFirst({
+      where: { id: columnId, templateId },
+    });
+    if (!column) throw new NotFoundException('Columna no encontrada');
+
+    await this.prisma.templateColumn.update({
+      where: { id: columnId },
+      data: { logoUrl: null },
+    });
+    await this.deleteFileIfUnreferenced(column.logoUrl);
+    return this.getOne(templateId);
+  }
+
+  private async deleteFileIfUnreferenced(url: string | null | undefined) {
+    if (!url) return;
+    const [templates, templateCols, retros, retroCols] = await Promise.all([
+      this.prisma.template.count({ where: { backgroundImageUrl: url } }),
+      this.prisma.templateColumn.count({ where: { logoUrl: url } }),
+      this.prisma.retrospective.count({ where: { backgroundImageUrl: url } }),
+      this.prisma.retroColumn.count({ where: { logoUrl: url } }),
+    ]);
+    if (templates + templateCols + retros + retroCols > 0) return;
+    await this.uploads.deleteByPublicUrl(url);
   }
 
   private columnData(c: TemplateColumnInputDto, index: number) {

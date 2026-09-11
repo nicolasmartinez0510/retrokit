@@ -1,4 +1,13 @@
 @if (retro(); as r) {
+  <div
+    class="retro-scene"
+    [class.has-theme]="!!r.backgroundColor || !!r.backgroundImageUrl"
+    [class.has-image]="!!r.backgroundImageUrl"
+    [style.background-color]="r.backgroundColor || null"
+    [style.background-image]="
+      r.backgroundImageUrl ? 'url(' + r.backgroundImageUrl + ')' : null
+    "
+  >
   <div class="retro-shell">
     <header class="retro-header">
       <div>
@@ -237,7 +246,11 @@
         @for (col of r.columns; track col.id) {
           <section class="column">
             <header>
-              <span class="icon">{{ col.icon || '•' }}</span>
+              @if (col.logoUrl) {
+                <img class="col-logo" [src]="col.logoUrl" alt="" />
+              } @else {
+                <span class="icon">{{ col.icon || '•' }}</span>
+              }
               <div>
                 <h2>{{ col.title }}</h2>
                 @if (col.description) {
@@ -518,6 +531,7 @@
         </div>
       </div>
     }
+  </div>
   </div>
 } @else {
   <div class="page"><p>Cargando retrospectiva…</p></div>

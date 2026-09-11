@@ -2,6 +2,9 @@ import {
   Component,
   ElementRef,
   HostListener,
+  booleanAttribute,
+  computed,
+  input,
   output,
   signal,
 } from '@angular/core';
@@ -97,15 +100,30 @@ const EMOJIS = [
       <button
         type="button"
         class="btn-ghost btn-sm emoji-trigger"
+        [class.icon-only]="iconOnly()"
         (click)="toggle($event)"
-        title="Emoji"
-        aria-label="Insertar emoji"
+        [title]="title()"
+        [attr.aria-label]="title()"
       >
-        😊
+        @if (iconOnly()) {
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="9" cy="10" r="1.1" fill="currentColor" stroke="none" />
+            <circle cx="15" cy="10" r="1.1" fill="currentColor" stroke="none" />
+            <path d="M8.4 14.4c.9 1.4 2.2 2.1 3.6 2.1s2.7-.7 3.6-2.1" />
+          </svg>
+        } @else {
+          {{ label() }}
+        }
       </button>
       @if (open()) {
-        <div class="emoji-popover" role="listbox" aria-label="Emojis">
-          @for (e of emojis; track e) {
+        <div
+          class="emoji-popover"
+          [class.down]="placement() === 'down'"
+          role="listbox"
+          aria-label="Emojis"
+        >
+          @for (e of emojis(); track e) {
             <button
               type="button"
               class="emoji-btn"
@@ -129,6 +147,22 @@ const EMOJIS = [
       padding: 0.25rem 0.45rem;
       line-height: 1;
     }
+    .emoji-trigger.icon-only {
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      font-size: inherit;
+    }
+    .emoji-trigger svg {
+      width: 1.15rem;
+      height: 1.15rem;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
     .emoji-popover {
       position: absolute;
       bottom: calc(100% + 0.35rem);
@@ -145,6 +179,10 @@ const EMOJIS = [
       max-height: 12rem;
       overflow-y: auto;
       width: max-content;
+    }
+    .emoji-popover.down {
+      bottom: auto;
+      top: calc(100% + 0.35rem);
     }
     .emoji-btn {
       border: none;
@@ -165,7 +203,12 @@ const EMOJIS = [
 export class EmojiPickerComponent {
   readonly picked = output<string>();
   readonly open = signal(false);
-  readonly emojis = EMOJIS;
+  readonly prepend = input<string[]>([]);
+  readonly label = input('😊');
+  readonly title = input('Insertar emoji');
+  readonly placement = input<'up' | 'down'>('up');
+  readonly iconOnly = input(false, { transform: booleanAttribute });
+  readonly emojis = computed(() => [...this.prepend(), ...EMOJIS]);
 
   constructor(private readonly host: ElementRef<HTMLElement>) {}
 

@@ -24,18 +24,27 @@ export interface TemplateColumnInput {
   title: string;
   description?: string | null;
   icon?: string | null;
+  logoUrl?: string | null;
   position: number;
 }
 
 export interface CreateTemplatePayload {
   name: string;
   description?: string | null;
+  maxCommentsPerParticipant?: number | null;
+  votesPerParticipant?: number;
+  maxVotesPerCard?: number;
+  backgroundColor?: string | null;
   columns: TemplateColumnInput[];
 }
 
 export interface UpdateTemplatePayload {
   name?: string;
   description?: string | null;
+  maxCommentsPerParticipant?: number | null;
+  votesPerParticipant?: number;
+  maxVotesPerCard?: number;
+  backgroundColor?: string | null;
   columns?: TemplateColumnInput[];
 }
 
@@ -82,6 +91,7 @@ export interface TemplateColumn {
   title: string;
   description?: string | null;
   icon?: string | null;
+  logoUrl?: string | null;
   position: number;
 }
 
@@ -89,6 +99,11 @@ export interface Template {
   id: string;
   name: string;
   description?: string | null;
+  maxCommentsPerParticipant?: number | null;
+  votesPerParticipant?: number;
+  maxVotesPerCard?: number;
+  backgroundColor?: string | null;
+  backgroundImageUrl?: string | null;
   columns: TemplateColumn[];
 }
 
@@ -145,6 +160,7 @@ export interface RetroColumn {
   title: string;
   description?: string | null;
   icon?: string | null;
+  logoUrl?: string | null;
   position: number;
 }
 
@@ -205,6 +221,8 @@ export interface RetroBoard {
   allowAnonymous: boolean;
   timerSeconds: number | null;
   timerEndsAt: string | null;
+  backgroundColor?: string | null;
+  backgroundImageUrl?: string | null;
   createdAt: string;
   closedAt?: string | null;
   columns: RetroColumn[];

@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/auth.service';
 import { ThemeService } from './core/theme.service';
+import { ToastService } from './core/toast.service';
 import { BrandLogo } from './shared/brand-logo.component';
 
 @Component({
@@ -61,6 +62,18 @@ import { BrandLogo } from './shared/brand-logo.component';
     <main>
       <router-outlet />
     </main>
+    @if (toast.message()) {
+      <button
+        type="button"
+        class="app-toast"
+        [class.error]="toast.kind() === 'error'"
+        role="status"
+        aria-live="polite"
+        (click)="toast.dismiss()"
+      >
+        {{ toast.message() }}
+      </button>
+    }
   `,
   styles: `
     .topbar {
@@ -139,4 +152,5 @@ import { BrandLogo } from './shared/brand-logo.component';
 export class App {
   readonly auth = inject(AuthService);
   readonly theme = inject(ThemeService);
+  readonly toast = inject(ToastService);
 }
