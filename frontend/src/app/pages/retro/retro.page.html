@@ -339,14 +339,18 @@
                     @if (!card.hidden && card.authorName) {
                       <small>{{ card.authorName }}</small>
                     }
-                    @if (canManageCard(card)) {
+                    @if (canEditCard(card) || canDeleteCard(card)) {
                       <div class="card-actions">
-                        <button type="button" class="btn-ghost btn-sm" (click)="startEdit(card, $event)">
-                          Editar
-                        </button>
-                        <button type="button" class="btn-danger btn-sm" (click)="deleteCard(card, $event)">
-                          Borrar
-                        </button>
+                        @if (canEditCard(card)) {
+                          <button type="button" class="btn-ghost btn-sm" (click)="startEdit(card, $event)">
+                            Editar
+                          </button>
+                        }
+                        @if (canDeleteCard(card)) {
+                          <button type="button" class="btn-danger btn-sm" (click)="deleteCard(card, $event)">
+                            Borrar
+                          </button>
+                        }
                       </div>
                     }
                   }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -104,6 +105,46 @@ export class TeamsService {
         user: { select: { id: true, name: true, email: true } },
       },
     });
+  }
+
+  async removeMember(actorId: string, teamId: string, targetUserId: string) {
+    await this.assertFacilitator(actorId, teamId);
+    if (actorId === targetUserId) {
+      throw new BadRequestException(
+        'No podés sacarte a vos mismo del equipo',
+      );
+    }
+
+    const target = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+    });
+    if (!target) throw new NotFoundException('Miembro no encontrado');
+
+    if (target.role === TeamRole.facilitator) {
+      const facilitatorCount = await this.prisma.teamMember.count({
+        where: { teamId, role: TeamRole.facilitator },
+      });
+      if (facilitatorCount <= 1) {
+        throw new BadRequestException(
+          'No se puede sacar al único facilitador del equipo',
+        );
+      }
+    }
+
+    await this.prisma.teamMember.delete({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+    });
+
+    const remaining = await this.prisma.teamMember.count({
+      where: { userId: targetUserId },
+    });
+    let accountDeleted = false;
+    if (remaining === 0) {
+      await this.prisma.user.delete({ where: { id: targetUserId } });
+      accountDeleted = true;
+    }
+
+    return { removed: true, accountDeleted };
   }
 
   async join(userId: string, dto: JoinTeamDto) {

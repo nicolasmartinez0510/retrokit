@@ -425,7 +425,7 @@ export class RetroPage implements OnInit, OnDestroy {
     return !!pid && card.authorId === pid;
   }
 
-  canManageCard(card: Card & { isGroup?: boolean }): boolean {
+  canEditCard(card: Card & { isGroup?: boolean }): boolean {
     const r = this.retro();
     if (!r) return false;
     if (r.status !== 'comments' && r.status !== 'grouping') return false;
@@ -433,9 +433,17 @@ export class RetroPage implements OnInit, OnDestroy {
     return this.isOwnCard(card);
   }
 
+  canDeleteCard(card: Card & { isGroup?: boolean }): boolean {
+    const r = this.retro();
+    if (!r) return false;
+    if (r.status !== 'comments' && r.status !== 'grouping') return false;
+    if (card.hidden || card.isGroup || card.groupId) return false;
+    return this.isOwnCard(card) || !!r.me?.isFacilitator;
+  }
+
   startEdit(card: Card, event: Event) {
     event.stopPropagation();
-    if (!this.canManageCard(card)) return;
+    if (!this.canEditCard(card)) return;
     this.clearEditImagePreview();
     this.editingCardId = card.id;
     this.editDraft = card.content;
@@ -507,7 +515,7 @@ export class RetroPage implements OnInit, OnDestroy {
     event.stopPropagation();
     const r = this.retro();
     const content = this.editDraft.trim();
-    if (!r || !this.canManageCard(card) || !this.canSaveEdit(card)) return;
+    if (!r || !this.canEditCard(card) || !this.canSaveEdit(card)) return;
 
     const afterContent = () => {
       if (this.editImageFile) {
@@ -589,7 +597,7 @@ export class RetroPage implements OnInit, OnDestroy {
   deleteCard(card: Card, event: Event) {
     event.stopPropagation();
     const r = this.retro();
-    if (!r || !this.canManageCard(card)) return;
+    if (!r || !this.canDeleteCard(card)) return;
     if (!confirm('¿Borrar este comentario? Esta acción no se puede deshacer.')) {
       return;
     }

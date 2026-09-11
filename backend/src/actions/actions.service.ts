@@ -83,7 +83,7 @@ export class ActionsService {
       where: { id: actionId },
     });
     if (!action) throw new NotFoundException('Action not found');
-    await this.teams.assertMember(userId, action.teamId);
+    await this.teams.assertFacilitator(userId, action.teamId);
     await this.prisma.actionItem.delete({ where: { id: actionId } });
     return { deleted: true };
   }

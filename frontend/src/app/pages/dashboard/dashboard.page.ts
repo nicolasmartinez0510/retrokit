@@ -239,7 +239,13 @@ export class DashboardPage implements OnInit {
 
   teams = signal<TeamSummary[]>([]);
   recentRetros = signal<
-    { id: string; title: string; status: string; teamName: string }[]
+    {
+      id: string;
+      title: string;
+      status: string;
+      teamName: string;
+      createdAt: string;
+    }[]
   >([]);
   pendingActions = signal<ActionItem[]>([]);
   teamFormsOpen = signal(false);
@@ -282,6 +288,7 @@ export class DashboardPage implements OnInit {
             title: string;
             status: string;
             teamName: string;
+            createdAt: string;
           }[] = [];
           for (const d of details) {
             if (!d) continue;
@@ -291,10 +298,15 @@ export class DashboardPage implements OnInit {
                 title: r.title,
                 status: r.status,
                 teamName: d.name,
+                createdAt: r.createdAt,
               });
             }
           }
-          this.recentRetros.set(retros.slice(0, 8));
+          retros.sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          );
+          this.recentRetros.set(retros.slice(0, 3));
         });
         forkJoin(
           teams.map((t) =>

@@ -640,6 +640,7 @@ export class RetrosService {
   }
 
   async deleteCard(user: JwtPayload, retroId: string, cardId: string) {
+    await this.loadAccess(user, retroId);
     const retro = await this.getRetroOrThrow(retroId);
     if (
       retro.status !== RetroStatus.comments &&
@@ -650,13 +651,15 @@ export class RetrosService {
       );
     }
 
-    const participant = await this.requireParticipant(user, retroId);
     const facilitator = await this.isFacilitator(user, retroId);
+    const participant = facilitator
+      ? await this.findParticipant(user, retroId)
+      : await this.requireParticipant(user, retroId);
     const card = await this.prisma.card.findFirst({
       where: { id: cardId, retroId },
     });
     if (!card) throw new NotFoundException('Card not found');
-    if (card.authorId !== participant.id && !facilitator) {
+    if (card.authorId !== participant?.id && !facilitator) {
       throw new ForbiddenException('Cannot delete this card');
     }
 
@@ -952,9 +955,10 @@ export class RetrosService {
     if (!retro) throw new NotFoundException('Retrospective not found');
 
     const participant = await this.findParticipant(user, retroId);
-    // Hide others' cards for every live viewer in comments (incl. spectators).
+    const facilitator = await this.isFacilitator(user, retroId);
+    // Hide others' cards in comments, except for the team facilitator.
     const hideOthers =
-      !forReport && retro.status === RetroStatus.comments;
+      !forReport && retro.status === RetroStatus.comments && !facilitator;
 
     const cards = retro.cards.map((card) => {
       const authorName = card.isAnonymous
@@ -1053,7 +1057,7 @@ export class RetrosService {
         votesRemaining: Math.max(0, retro.votesPerParticipant - myVoteTotal),
         commentsReady: participant?.commentsReady ?? false,
         votesReady: participant?.votesReady ?? false,
-        isFacilitator: await this.isFacilitator(user, retroId),
+        isFacilitator: facilitator,
       },
     };
   }

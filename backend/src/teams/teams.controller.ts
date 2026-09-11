@@ -48,6 +48,15 @@ export class TeamsController {
     return this.teams.listMembers(user.sub, id);
   }
 
+  @Delete(':id/members/:userId')
+  removeMember(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.teams.removeMember(user.sub, id, userId);
+  }
+
   @Patch(':id')
   update(
     @CurrentUser() user: JwtPayload,

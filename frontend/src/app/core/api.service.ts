@@ -36,6 +36,16 @@ export class ApiService {
     return this.http.get<TeamDetail>(`${this.base}/teams/${id}`);
   }
 
+  removeTeamMember(teamId: string, userId: string) {
+    return this.http.delete<{ removed: boolean; accountDeleted: boolean }>(
+      `${this.base}/teams/${teamId}/members/${userId}`,
+    );
+  }
+
+  deleteTeam(id: string) {
+    return this.http.delete<{ deleted: boolean }>(`${this.base}/teams/${id}`);
+  }
+
   // Templates
   listTemplates() {
     return this.http.get<Template[]>(`${this.base}/templates`);
@@ -232,6 +242,12 @@ export class ApiService {
     return this.http.patch(
       `${this.base}/teams/${teamId}/actions/${actionId}`,
       body,
+    );
+  }
+
+  deleteAction(actionId: string) {
+    return this.http.delete<{ deleted: boolean }>(
+      `${this.base}/actions/${actionId}`,
     );
   }
 }

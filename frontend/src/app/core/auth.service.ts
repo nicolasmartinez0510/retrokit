@@ -93,6 +93,13 @@ export class AuthService {
     this.facilitatorRequest = null;
   }
 
+  /** Re-fetch /auth/me so isFacilitator can drop after deleting a team. */
+  refreshProfile(): Observable<User | null> {
+    this.meRequest = null;
+    this.facilitatorRequest = null;
+    return this.ensureMe();
+  }
+
   setGuestToken(token: string, name: string, retroId: string, participantId: string) {
     localStorage.setItem(TOKEN_KEY, token);
     const user: User = {
@@ -134,7 +141,7 @@ export class AuthService {
             isFacilitator:
               typeof profile.isFacilitator === 'boolean'
                 ? profile.isFacilitator
-                : previous?.isFacilitator,
+                : false,
           };
           this.writeUser(user);
           return user;
