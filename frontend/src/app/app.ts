@@ -2,14 +2,17 @@ import { Component, inject } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/auth.service';
 import { ThemeService } from './core/theme.service';
+import { BrandLogo } from './shared/brand-logo.component';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink],
+  imports: [RouterOutlet, RouterLink, BrandLogo],
   template: `
     <header class="topbar">
       <a routerLink="/" class="brand">
-        <span class="logo">R</span>
+        <span class="logo" aria-hidden="true">
+          <app-brand-logo />
+        </span>
         <span>Retrokit</span>
       </a>
       <div class="topbar-right">
@@ -83,12 +86,13 @@ import { ThemeService } from './core/theme.service';
     .logo {
       width: 32px;
       height: 32px;
+      padding: 6px 4px 4px;
+      box-sizing: border-box;
       border-radius: 8px;
       background: linear-gradient(135deg, var(--color-brand), var(--color-sky-mid));
       color: var(--color-on-brand);
       display: grid;
       place-items: center;
-      font-size: 0.95rem;
     }
     .topbar-right {
       display: flex;
