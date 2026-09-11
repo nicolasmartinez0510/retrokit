@@ -555,6 +555,54 @@
     }
   </div>
   </div>
+} @else if (accessDenied(); as denied) {
+  <div class="page">
+    <div
+      class="join-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="access-denied-title"
+    >
+      <div class="card join-modal">
+        <h2 id="access-denied-title">No sos miembro de este equipo</h2>
+        @if (denied.pendingRequest) {
+          <p class="join-modal-copy">
+            Ya pediste sumarte a
+            <strong>{{ denied.teamName || 'este equipo' }}</strong>.
+            Esperá a que el facilitador confirme.
+          </p>
+          <div class="join-modal-actions">
+            <a routerLink="/dashboard" class="btn-primary">Volver al panel</a>
+          </div>
+        } @else {
+          <p class="join-modal-copy">
+            No sos miembro de
+            <strong>{{ denied.teamName || 'este equipo' }}</strong>.
+            Podés volver al panel o pedir que te sumen.
+          </p>
+          @if (error()) {
+            <p class="form-error">{{ error() }}</p>
+          }
+          <div class="join-modal-actions">
+            <button
+              type="button"
+              class="btn-primary"
+              [disabled]="requestingJoin()"
+              (click)="requestJoin()"
+            >
+              {{ requestingJoin() ? 'Enviando…' : 'Pedir unirme al equipo' }}
+            </button>
+            <a routerLink="/dashboard" class="btn-secondary">Volver al panel</a>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+} @else if (loadError()) {
+  <div class="page load-error">
+    <p class="form-error">{{ loadError() }}</p>
+    <a routerLink="/dashboard" class="btn-secondary">Volver al panel</a>
+  </div>
 } @else {
   <div class="page"><p>Cargando retrospectiva…</p></div>
 }

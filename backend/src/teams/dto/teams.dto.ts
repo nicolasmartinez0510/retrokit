@@ -18,3 +18,9 @@ export class UpdateTeamDto {
   @MinLength(2)
   name?: string;
 }
+
+export class RequestTeamJoinDto {
+  @IsString()
+  @MinLength(1)
+  retroId!: string;
+}

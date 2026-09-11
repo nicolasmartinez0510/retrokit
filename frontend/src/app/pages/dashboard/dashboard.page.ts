@@ -1,10 +1,11 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { JoinRequestService } from '../../core/join-request.service';
 import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
 
 @Component({
@@ -68,7 +69,15 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
                 {{ team._count?.members || 0 }} miembros ·
                 {{ team._count?.retrospectives || 0 }} retros
               </p>
-              <span class="badge">{{ roleLabel(team) }}</span>
+              <div class="team-card-badges">
+                <span class="badge">{{ roleLabel(team) }}</span>
+                @if ((team.pendingJoinCount ?? 0) > 0) {
+                  <span class="badge request-badge">
+                    {{ team.pendingJoinCount }}
+                    {{ team.pendingJoinCount === 1 ? 'solicitud' : 'solicitudes' }}
+                  </span>
+                }
+              </div>
             </a>
           } @empty {
             @if (!teamFormsOpen()) {
@@ -179,6 +188,16 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
         font-size: 0.9rem;
       }
     }
+    .team-card-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .request-badge {
+      background: var(--color-sky-soft);
+      color: var(--color-brand);
+      border-color: var(--color-sky-mid);
+    }
     .split {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -235,6 +254,7 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
 export class DashboardPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+  private readonly joinRequests = inject(JoinRequestService);
   private readonly router = inject(Router);
 
   teams = signal<TeamSummary[]>([]);
@@ -252,6 +272,14 @@ export class DashboardPage implements OnInit {
   newTeamName = '';
   joinCode = '';
   error = signal('');
+
+  constructor() {
+    effect(() => {
+      const version = this.joinRequests.changed();
+      if (version === 0) return;
+      untracked(() => this.reload());
+    });
+  }
 
   ngOnInit() {
     this.reload();

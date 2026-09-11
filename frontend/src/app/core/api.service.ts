@@ -9,6 +9,7 @@ import {
   RetroBoard,
   RetroReport,
   TeamDetail,
+  TeamJoinRequest,
   TeamSummary,
   Template,
   UpdateTemplatePayload,
@@ -44,6 +45,26 @@ export class ApiService {
 
   deleteTeam(id: string) {
     return this.http.delete<{ deleted: boolean }>(`${this.base}/teams/${id}`);
+  }
+
+  requestTeamJoin(retroId: string) {
+    return this.http.post<TeamJoinRequest>(`${this.base}/teams/join-requests`, {
+      retroId,
+    });
+  }
+
+  acceptJoinRequest(teamId: string, requestId: string) {
+    return this.http.post<{ accepted: boolean }>(
+      `${this.base}/teams/${teamId}/join-requests/${requestId}/accept`,
+      {},
+    );
+  }
+
+  rejectJoinRequest(teamId: string, requestId: string) {
+    return this.http.post<{ rejected: boolean }>(
+      `${this.base}/teams/${teamId}/join-requests/${requestId}/reject`,
+      {},
+    );
   }
 
   // Templates

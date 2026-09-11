@@ -29,24 +29,26 @@ enum ActionStatus {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  email        String        @unique
+  id           String            @id @default(cuid())
+  email        String            @unique
   passwordHash String
   name         String
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime          @default(now())
   memberships  TeamMember[]
   participants Participant[]
-  ownedActions ActionItem[]  @relation("ActionOwner")
+  ownedActions ActionItem[]      @relation("ActionOwner")
+  joinRequests TeamJoinRequest[]
 }
 
 model Team {
-  id             String          @id @default(cuid())
+  id             String            @id @default(cuid())
   name           String
-  inviteCode     String          @unique @default(cuid())
-  createdAt      DateTime        @default(now())
+  inviteCode     String            @unique @default(cuid())
+  createdAt      DateTime          @default(now())
   members        TeamMember[]
   retrospectives Retrospective[]
   actionItems    ActionItem[]
+  joinRequests   TeamJoinRequest[]
 }
 
 model TeamMember {
@@ -56,6 +58,17 @@ model TeamMember {
   role   TeamRole @default(member)
   team   Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model TeamJoinRequest {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  createdAt DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([teamId, userId])
 }

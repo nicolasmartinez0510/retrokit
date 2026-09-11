@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ActionsModule } from './actions/actions.module';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { RetrosModule } from './retros/retros.module';
 import { TeamsModule } from './teams/teams.module';
 import { TemplatesModule } from './templates/templates.module';
@@ -20,6 +21,7 @@ class HealthController {
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    RealtimeModule,
     UploadsModule,
     AuthModule,
     TeamsModule,

@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
   OnDestroy,
@@ -10,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { httpErrorMessage } from '../../core/http-error';
 import {
   Card,
   PHASES,
@@ -21,10 +23,17 @@ import {
   prefersReducedMotion,
 } from '../../core/confetti';
 import { SocketService } from '../../core/socket.service';
+import { ToastService } from '../../core/toast.service';
 import { AutosizeTextareaDirective } from '../../shared/autosize-textarea.directive';
 import { EmojiPickerComponent } from '../../shared/emoji-picker.component';
 
 type SortMode = 'most' | 'least' | 'original';
+
+export interface RetroAccessDenied {
+  teamId: string;
+  teamName: string;
+  pendingRequest: boolean;
+}
 
 const spectateKey = (id: string) => `retrokit:spectate:${id}`;
 
@@ -52,11 +61,38 @@ export class RetroPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly sockets = inject(SocketService);
+  private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
+  private retroId = '';
+  private readonly refreshBoard = () => {
+    if (this.retroId) this.reload(this.retroId);
+  };
+  private readonly onRetroDeleted = () => {
+    const teamId = this.retro()?.teamId;
+    void this.router.navigate(teamId ? ['/teams', teamId] : ['/dashboard']);
+  };
+  private readonly boardEvents = [
+    'phase-changed',
+    'card-created',
+    'card-updated',
+    'card-deleted',
+    'cards-grouped',
+    'votes-updated',
+    'settings-changed',
+    'timer-updated',
+    'action-created',
+    'participant-joined',
+    'comments-ready-changed',
+    'votes-ready-changed',
+  ] as const;
+
   retro = signal<RetroBoard | null>(null);
   error = signal('');
+  loadError = signal('');
+  accessDenied = signal<RetroAccessDenied | null>(null);
+  requestingJoin = signal(false);
   draft: Record<string, string> = {};
   draftImage: Record<string, File | null> = {};
   draftPreview: Record<string, string | null> = {};
@@ -149,36 +185,28 @@ export class RetroPage implements OnInit, OnDestroy {
   });
 
   ngOnInit() {
-    const id = this.route.snapshot.paramMap.get('id')!;
-    this.reload(id);
-    const socket = this.sockets.joinRetro(id);
-    const refresh = () => this.reload(id);
-    socket.on('phase-changed', refresh);
-    socket.on('card-created', refresh);
-    socket.on('card-updated', refresh);
-    socket.on('card-deleted', refresh);
-    socket.on('cards-grouped', refresh);
-    socket.on('votes-updated', refresh);
-    socket.on('settings-changed', refresh);
-    socket.on('timer-updated', refresh);
-    socket.on('action-created', refresh);
-    socket.on('participant-joined', refresh);
-    socket.on('comments-ready-changed', refresh);
-    socket.on('votes-ready-changed', refresh);
-    socket.on('retro-deleted', () => {
-      const teamId = this.retro()?.teamId;
-      void this.router.navigate(teamId ? ['/teams', teamId] : ['/dashboard']);
-    });
-    socket.on('confetti', this.onConfetti);
+    this.retroId = this.route.snapshot.paramMap.get('id')!;
+    this.reload(this.retroId);
+    this.sockets.joinRetro(this.retroId);
+    for (const event of this.boardEvents) {
+      this.sockets.on(event, this.refreshBoard);
+    }
+    this.sockets.on('retro-deleted', this.onRetroDeleted);
+    this.sockets.on('confetti', this.onConfetti);
   }
 
   ngOnDestroy() {
     if (this.timerHandle) clearInterval(this.timerHandle);
     if (this.copyToastTimer) clearTimeout(this.copyToastTimer);
+    for (const event of this.boardEvents) {
+      this.sockets.off(event, this.refreshBoard);
+    }
+    this.sockets.off('retro-deleted', this.onRetroDeleted);
     this.sockets.off('confetti', this.onConfetti);
     this.clearAllDraftPreviews();
     this.clearEditImagePreview();
-    this.sockets.disconnect();
+    this.sockets.leaveRetro(this.retroId);
+    if (!this.auth.isUser()) this.sockets.disconnect();
   }
 
   throwConfetti() {
@@ -208,6 +236,8 @@ export class RetroPage implements OnInit, OnDestroy {
     if (!id) return;
     this.api.getRetro(id).subscribe({
       next: (r) => {
+        this.accessDenied.set(null);
+        this.loadError.set('');
         this.retro.set(r);
         this.maxComments = r.maxCommentsPerParticipant;
         this.votesPerParticipant = r.votesPerParticipant;
@@ -216,7 +246,34 @@ export class RetroPage implements OnInit, OnDestroy {
         this.syncTimer(r.timerEndsAt);
         this.maybeShowJoinModal(r);
       },
-      error: (e) => this.error.set(e?.error?.message || 'Error al cargar'),
+      error: (e) => {
+        const denied = parseNotTeamMember(e);
+        if (denied) {
+          this.accessDenied.set(denied);
+          this.loadError.set('');
+          return;
+        }
+        this.accessDenied.set(null);
+        this.loadError.set(httpErrorMessage(e, 'Error al cargar'));
+      },
+    });
+  }
+
+  requestJoin() {
+    if (!this.retroId || this.requestingJoin()) return;
+    this.requestingJoin.set(true);
+    this.error.set('');
+    this.api.requestTeamJoin(this.retroId).subscribe({
+      next: () => {
+        this.toast.ok('Solicitud enviada. El facilitador la va a revisar.');
+        void this.router.navigate(['/dashboard']);
+      },
+      error: (e) => {
+        this.requestingJoin.set(false);
+        this.error.set(
+          httpErrorMessage(e, 'No se pudo enviar la solicitud'),
+        );
+      },
     });
   }
 
@@ -860,4 +917,19 @@ export class RetroPage implements OnInit, OnDestroy {
     const idx = PHASES.findIndex((p) => p.key === key);
     return idx >= 0 && cur > idx;
   }
+}
+
+function parseNotTeamMember(error: unknown): RetroAccessDenied | null {
+  if (!(error instanceof HttpErrorResponse) || error.status !== 403) {
+    return null;
+  }
+  const body = error.error;
+  if (!body || typeof body !== 'object' || body.code !== 'NOT_TEAM_MEMBER') {
+    return null;
+  }
+  return {
+    teamId: typeof body.teamId === 'string' ? body.teamId : '',
+    teamName: typeof body.teamName === 'string' ? body.teamName : '',
+    pendingRequest: !!body.pendingRequest,
+  };
 }

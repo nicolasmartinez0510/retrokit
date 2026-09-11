@@ -1,9 +1,16 @@
-import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnInit, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import { PHASE_LABELS, TeamDetail, TeamMember, Template } from '../../core/models';
+import { JoinRequestService } from '../../core/join-request.service';
+import {
+  PHASE_LABELS,
+  TeamDetail,
+  TeamJoinRequest,
+  TeamMember,
+  Template,
+} from '../../core/models';
 
 @Component({
   selector: 'app-team-page',
@@ -70,6 +77,34 @@ import { PHASE_LABELS, TeamDetail, TeamMember, Template } from '../../core/model
         <section class="section">
           <h2>Miembros</h2>
           <div class="member-list">
+            @for (req of t.joinRequests ?? []; track req.id) {
+              <div class="card member-row pending-member">
+                <div class="member-info">
+                  <strong>{{ req.user.name }}</strong>
+                  <span class="badge">Nuevo · pendiente</span>
+                </div>
+                @if (isFacilitator()) {
+                  <div class="member-actions">
+                    <button
+                      type="button"
+                      class="btn-primary btn-sm"
+                      [disabled]="resolvingRequestId() === req.id"
+                      (click)="acceptJoin(req)"
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-danger btn-sm"
+                      [disabled]="resolvingRequestId() === req.id"
+                      (click)="rejectJoin(req)"
+                    >
+                      Rechazar
+                    </button>
+                  </div>
+                }
+              </div>
+            }
             @for (m of t.members; track m.id) {
               <div class="card member-row">
                 <div class="member-info">
@@ -339,6 +374,14 @@ import { PHASE_LABELS, TeamDetail, TeamMember, Template } from '../../core/model
       align-items: center;
       gap: 0.75rem;
     }
+    .pending-member {
+      opacity: 0.7;
+    }
+    .member-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
     .member-info {
       display: flex;
       flex-wrap: wrap;
@@ -484,6 +527,7 @@ import { PHASE_LABELS, TeamDetail, TeamMember, Template } from '../../core/model
 export class TeamPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+  private readonly joinRequests = inject(JoinRequestService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -503,7 +547,16 @@ export class TeamPage implements OnInit {
   showDeleteModal = signal(false);
   deletingTeam = signal(false);
   deleteNameConfirm = '';
+  resolvingRequestId = signal('');
   private inviteCopyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    effect(() => {
+      const version = this.joinRequests.changed();
+      if (version === 0) return;
+      untracked(() => this.reloadTeam());
+    });
+  }
 
   phaseLabel = (s: keyof typeof PHASE_LABELS) => PHASE_LABELS[s];
 
@@ -660,14 +713,53 @@ export class TeamPage implements OnInit {
   }
 
   ngOnInit() {
-    const id = this.route.snapshot.paramMap.get('id')!;
-    this.api.getTeam(id).subscribe((t) => this.team.set(t));
+    this.reloadTeam();
     this.api.listTemplates().subscribe((t) => {
       this.templates.set(t);
       if (t[0]) {
         this.templateId = t[0].id;
         this.applyDefaults(t[0]);
       }
+    });
+  }
+
+  reloadTeam() {
+    const id = this.route.snapshot.paramMap.get('id');
+    if (!id) return;
+    this.api.getTeam(id).subscribe((t) => this.team.set(t));
+  }
+
+  acceptJoin(request: TeamJoinRequest) {
+    const team = this.team();
+    if (!team || this.resolvingRequestId()) return;
+    this.error.set('');
+    this.resolvingRequestId.set(request.id);
+    this.api.acceptJoinRequest(team.id, request.id).subscribe({
+      next: () => {
+        this.resolvingRequestId.set('');
+        this.reloadTeam();
+      },
+      error: (e) => {
+        this.resolvingRequestId.set('');
+        this.error.set(e?.error?.message || 'No se pudo confirmar');
+      },
+    });
+  }
+
+  rejectJoin(request: TeamJoinRequest) {
+    const team = this.team();
+    if (!team || this.resolvingRequestId()) return;
+    this.error.set('');
+    this.resolvingRequestId.set(request.id);
+    this.api.rejectJoinRequest(team.id, request.id).subscribe({
+      next: () => {
+        this.resolvingRequestId.set('');
+        this.reloadTeam();
+      },
+      error: (e) => {
+        this.resolvingRequestId.set('');
+        this.error.set(e?.error?.message || 'No se pudo rechazar');
+      },
     });
   }
 

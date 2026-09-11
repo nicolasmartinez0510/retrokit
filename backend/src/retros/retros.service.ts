@@ -21,7 +21,7 @@ import {
   UpdateSettingsDto,
   VoteDto,
 } from './dto/retros.dto';
-import { RetroEventsService } from './retro-events.service';
+import { RealtimeEventsService } from '../realtime/realtime-events.service';
 
 const PHASE_ORDER: RetroStatus[] = [
   RetroStatus.comments,
@@ -72,7 +72,7 @@ export class RetrosService {
     private readonly prisma: PrismaService,
     private readonly teams: TeamsService,
     private readonly auth: AuthService,
-    private readonly events: RetroEventsService,
+    private readonly events: RealtimeEventsService,
     private readonly uploads: UploadsService,
   ) {}
 
@@ -1106,7 +1106,7 @@ export class RetrosService {
     }
     const participant = await this.findParticipant(user, retroId);
     if (participant) return;
-    await this.teams.assertMember(user.sub, retro.teamId);
+    await this.teams.assertMemberOrThrowJoinDenied(user.sub, retro.teamId);
   }
 
   private async assertFacilitatorOfRetro(user: JwtPayload, retroId: string) {

@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/auth.service';
+import { JoinRequestService } from './core/join-request.service';
 import { ThemeService } from './core/theme.service';
 import { ToastService } from './core/toast.service';
 import { BrandLogo } from './shared/brand-logo.component';
@@ -104,6 +105,41 @@ import { BrandLogo } from './shared/brand-logo.component';
     <main>
       <router-outlet />
     </main>
+    @if (joinRequests.incoming(); as request) {
+      <div
+        class="join-request-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="join-request-title"
+      >
+        <div class="card join-request-modal">
+          <h2 id="join-request-title">Nueva solicitud de equipo</h2>
+          <p>
+            <strong>{{ request.user.name }}</strong>
+            quiere sumarse a
+            <strong>{{ request.teamName || 'tu equipo' }}</strong>.
+          </p>
+          <div class="join-request-actions">
+            <button
+              type="button"
+              class="btn-primary"
+              [disabled]="joinRequests.resolving()"
+              (click)="joinRequests.accept()"
+            >
+              {{ joinRequests.resolving() ? 'Guardando…' : 'Aceptar' }}
+            </button>
+            <button
+              type="button"
+              class="btn-danger"
+              [disabled]="joinRequests.resolving()"
+              (click)="joinRequests.reject()"
+            >
+              Rechazar
+            </button>
+          </div>
+        </div>
+      </div>
+    }
     @if (toast.message()) {
       <button
         type="button"
@@ -246,6 +282,38 @@ import { BrandLogo } from './shared/brand-logo.component';
     .theme-icon path {
       fill: currentColor;
     }
+    .join-request-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 70;
+      display: grid;
+      place-items: center;
+      padding: 1.25rem;
+      background: var(--color-overlay);
+      backdrop-filter: blur(4px);
+    }
+    .join-request-modal {
+      width: min(420px, 100%);
+      padding: 1.5rem 1.45rem 1.35rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+    .join-request-modal h2 {
+      margin: 0;
+      font-size: 1.15rem;
+    }
+    .join-request-modal p {
+      margin: 0;
+      color: var(--color-text-muted);
+      line-height: 1.45;
+    }
+    .join-request-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.65rem;
+    }
     @media (max-width: 720px) {
       .nav-link:not(.text-only) span {
         display: none;
@@ -263,4 +331,5 @@ export class App {
   readonly auth = inject(AuthService);
   readonly theme = inject(ThemeService);
   readonly toast = inject(ToastService);
+  readonly joinRequests = inject(JoinRequestService);
 }

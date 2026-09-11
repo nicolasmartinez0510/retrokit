@@ -58,14 +58,23 @@ export interface TeamSummary {
   name: string;
   inviteCode: string;
   createdAt: string;
-  _count?: { members: number; retrospectives: number };
+  _count?: { members: number; retrospectives: number; joinRequests?: number };
   members?: { role: TeamRole }[];
   role?: TeamRole;
+  pendingJoinCount?: number;
 }
 
 export interface TeamMember {
   id: string;
   role: TeamRole;
+  user: { id: string; name: string; email: string };
+}
+
+export interface TeamJoinRequest {
+  id: string;
+  teamId: string;
+  teamName?: string;
+  createdAt: string;
   user: { id: string; name: string; email: string };
 }
 
@@ -84,6 +93,7 @@ export interface TeamDetail {
   createdAt: string;
   members: TeamMember[];
   retrospectives: RetroSummary[];
+  joinRequests?: TeamJoinRequest[];
 }
 
 export interface TemplateColumn {

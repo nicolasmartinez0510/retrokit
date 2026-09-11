@@ -14,6 +14,7 @@ import { UserAuthGuard } from '../auth/user-auth.guard';
 import {
   CreateTeamDto,
   JoinTeamDto,
+  RequestTeamJoinDto,
   UpdateTeamDto,
 } from './dto/teams.dto';
 import { TeamsService } from './teams.service';
@@ -36,6 +37,32 @@ export class TeamsController {
   @Post('join')
   join(@CurrentUser() user: JwtPayload, @Body() dto: JoinTeamDto) {
     return this.teams.join(user.sub, dto);
+  }
+
+  @Post('join-requests')
+  requestJoin(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: RequestTeamJoinDto,
+  ) {
+    return this.teams.requestJoinFromRetro(user.sub, dto.retroId);
+  }
+
+  @Post(':id/join-requests/:requestId/accept')
+  acceptJoinRequest(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('requestId') requestId: string,
+  ) {
+    return this.teams.acceptJoinRequest(user.sub, id, requestId);
+  }
+
+  @Post(':id/join-requests/:requestId/reject')
+  rejectJoinRequest(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('requestId') requestId: string,
+  ) {
+    return this.teams.rejectJoinRequest(user.sub, id, requestId);
   }
 
   @Get(':id')
