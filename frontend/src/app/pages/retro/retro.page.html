@@ -10,7 +10,7 @@
   >
   <div class="retro-shell">
     <header class="retro-header">
-      <div>
+      <div class="retro-heading">
         <p class="eyebrow">{{ r.team?.name }}</p>
         <h1>{{ r.title }}</h1>
         @if (isSpectator()) {
@@ -160,7 +160,7 @@
       <div class="meta-bar">
         @if (r.status === 'comments' || r.status === 'grouping') {
           @if (isParticipant()) {
-            <span>
+            <span class="meta-stat">
               Tus comentarios: {{ r.me?.myCommentCount || 0 }}
               @if (r.maxCommentsPerParticipant != null) {
                 / {{ r.maxCommentsPerParticipant }}
@@ -200,7 +200,7 @@
         }
         @if (r.status === 'voting') {
           @if (isParticipant()) {
-            <span>
+            <span class="meta-stat">
               Tus votos: {{ r.me?.myVoteTotal || 0 }} / {{ r.votesPerParticipant }}
             </span>
             <label class="ready-toggle" [class.locked]="readyLocked()">
