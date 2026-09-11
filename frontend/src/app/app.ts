@@ -78,15 +78,17 @@ import { BrandLogo } from './shared/brand-logo.component';
       display: flex;
       align-items: center;
       gap: 0.6rem;
-      font-weight: 700;
+      font-family: var(--font-brand);
+      font-weight: 800;
       font-size: 1.15rem;
+      letter-spacing: -0.03em;
       color: var(--color-brand);
       text-decoration: none;
     }
     .logo {
       width: 32px;
       height: 32px;
-      padding: 6px 4px 4px;
+      padding: 7px 4px;
       box-sizing: border-box;
       border-radius: 8px;
       background: linear-gradient(135deg, var(--color-brand), var(--color-sky-mid));

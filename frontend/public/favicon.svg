@@ -1,14 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <rect width="64" height="64" rx="14" fill="#008ACE"/>
-  <g transform="translate(32 33) scale(0.76) translate(-32 -20)" color="#fff">
-    <path
-      d="M10 28C5 13 21 7 32 19C43 7 59 13 54 28"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="8"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-    <path fill="currentColor" d="M32 25.5 37.4 37H26.6Z"/>
+  <g fill="#fff" transform="translate(32 34) scale(0.5) translate(-50 -21)">
+    <path d="M0 8C8 2 24 0 36 10C42 14 47 14 50 10C53 14 58 14 64 10C76 0 92 2 100 8C96 16 86 40 66 38C58 37 53 30 50 32C47 30 42 37 34 38C14 40 4 16 0 8Z"/>
   </g>
 </svg>

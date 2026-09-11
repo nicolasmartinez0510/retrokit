@@ -15,9 +15,7 @@ function safeReturnUrl(value: string | null): string | null {
   template: `
     <div class="auth-wrap">
       <form class="card auth-card" (ngSubmit)="submit()">
-        <div class="auth-mark" aria-hidden="true">
-          <app-brand-logo />
-        </div>
+        <app-brand-logo [lockup]="true" />
         <h1>Crear cuenta</h1>
         <p class="subtitle">Empieza a facilitar retrospectivas</p>
         <div class="field">
@@ -67,13 +65,7 @@ function safeReturnUrl(value: string | null): string | null {
       flex-direction: column;
       gap: 1rem;
     }
-    h1 { font-size: 1.5rem; text-align: center; }
-    .auth-mark {
-      width: 4.5rem;
-      height: 2.8rem;
-      margin: 0 auto 0.25rem;
-      color: var(--color-brand);
-    }
+    h1 { font-size: 1.35rem; text-align: center; }
     .subtitle { color: var(--color-text-muted); margin-bottom: 0.5rem; text-align: center; }
     .switch { font-size: 0.9rem; color: var(--color-text-muted); text-align: center; }
   `,
