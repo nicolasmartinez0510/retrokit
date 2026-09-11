@@ -19,31 +19,47 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
         </div>
       </div>
 
-      <div class="grid-actions">
-        <form class="card panel" (ngSubmit)="createTeam()">
-          <h2>Crear equipo</h2>
-          <div class="field">
-            <label>Nombre del equipo</label>
-            <input [(ngModel)]="newTeamName" name="newTeamName" required />
-          </div>
-          <button class="btn-primary" type="submit">Crear</button>
-        </form>
-        <form class="card panel" (ngSubmit)="joinTeam()">
-          <h2>Unirse con código</h2>
-          <div class="field">
-            <label>Código de invitación</label>
-            <input [(ngModel)]="joinCode" name="joinCode" required />
-          </div>
-          <button class="btn-secondary" type="submit">Unirme</button>
-        </form>
-      </div>
-
       @if (error()) {
         <p class="form-error">{{ error() }}</p>
       }
 
       <section class="section">
-        <h2>Equipos</h2>
+        <div class="section-heading">
+          <h2>Equipos</h2>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            [attr.aria-expanded]="teamFormsOpen()"
+            (click)="toggleTeamForms()"
+          >
+            <svg class="plus-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 4.5a.75.75 0 0 1 .75.75v6.75h6.75a.75.75 0 0 1 0 1.5h-6.75v6.75a.75.75 0 0 1-1.5 0v-6.75H4.5a.75.75 0 0 1 0-1.5h6.75V5.25A.75.75 0 0 1 12 4.5Z"
+              />
+            </svg>
+            Nuevo
+          </button>
+        </div>
+        @if (teamFormsOpen()) {
+          <div class="grid-actions">
+            <form class="card panel" (ngSubmit)="createTeam()">
+              <h2>Crear equipo</h2>
+              <div class="field">
+                <label>Nombre del equipo</label>
+                <input [(ngModel)]="newTeamName" name="newTeamName" required />
+              </div>
+              <button class="btn-primary" type="submit">Crear</button>
+            </form>
+            <form class="card panel" (ngSubmit)="joinTeam()">
+              <h2>Unirse con código</h2>
+              <div class="field">
+                <label>Código de invitación</label>
+                <input [(ngModel)]="joinCode" name="joinCode" required />
+              </div>
+              <button class="btn-secondary" type="submit">Unirme</button>
+            </form>
+          </div>
+        }
         <div class="team-list">
           @for (team of teams(); track team.id) {
             <a class="card team-card" [routerLink]="['/teams', team.id]">
@@ -55,10 +71,12 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
               <span class="badge">{{ roleLabel(team) }}</span>
             </a>
           } @empty {
-            <div class="empty-state card">
-              <strong>Aún no tienes equipos</strong>
-              Crea uno o únete con un código de invitación.
-            </div>
+            @if (!teamFormsOpen()) {
+              <div class="empty-state card">
+                <strong>Aún no tienes equipos</strong>
+                Crea uno o únete con un código de invitación.
+              </div>
+            }
           }
         </div>
       </section>
@@ -103,7 +121,7 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 1rem;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1rem;
     }
     .panel {
       padding: 1.25rem;
@@ -117,9 +135,27 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
     .section {
       margin-bottom: 1.5rem;
     }
-    .section h2 {
+    .section > h2,
+    .section-heading h2 {
       font-size: 1.1rem;
       margin-bottom: 0.75rem;
+    }
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .section-heading h2 {
+      margin-bottom: 0;
+    }
+    .plus-icon {
+      width: 1em;
+      height: 1em;
+      display: block;
+      flex-shrink: 0;
+      fill: currentColor;
     }
     .team-list {
       display: grid;
@@ -147,6 +183,13 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 1.25rem;
+      align-items: stretch;
+    }
+    .split .section {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      margin-bottom: 0;
     }
     @media (max-width: 800px) {
       .split {
@@ -154,6 +197,10 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
       }
     }
     .list {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 4.75rem;
       padding: 0.25rem 0;
     }
     .list-row {
@@ -177,6 +224,10 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
       font-size: 0.85rem;
     }
     .empty-state.compact {
+      flex: 1;
+      display: grid;
+      place-items: center;
+      min-height: 3.5rem;
       padding: 1.25rem;
     }
   `,
@@ -191,12 +242,17 @@ export class DashboardPage implements OnInit {
     { id: string; title: string; status: string; teamName: string }[]
   >([]);
   pendingActions = signal<ActionItem[]>([]);
+  teamFormsOpen = signal(false);
   newTeamName = '';
   joinCode = '';
   error = signal('');
 
   ngOnInit() {
     this.reload();
+  }
+
+  toggleTeamForms() {
+    this.teamFormsOpen.update((open) => !open);
   }
 
   roleLabel(team: TeamSummary): string {
@@ -213,6 +269,7 @@ export class DashboardPage implements OnInit {
       next: (teams) => {
         this.teams.set(teams);
         if (!teams.length) {
+          this.teamFormsOpen.set(true);
           this.recentRetros.set([]);
           this.pendingActions.set([]);
           return;

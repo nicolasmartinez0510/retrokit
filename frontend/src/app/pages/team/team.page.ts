@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
@@ -19,9 +19,18 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
               <strong>{{ t.inviteCode }}</strong>
             </p>
           </div>
-          <a class="btn-secondary" [routerLink]="['/teams', t.id, 'actions']"
-            >Tablero de acciones</a
-          >
+          <div class="header-actions">
+            <button
+              type="button"
+              class="btn-primary"
+              (click)="openCreateModal()"
+            >
+              Nueva retrospectiva
+            </button>
+            <a class="btn-secondary" [routerLink]="['/teams', t.id, 'actions']"
+              >Tablero de acciones</a
+            >
+          </div>
         </div>
 
         <section class="card panel invite-panel">
@@ -49,8 +58,56 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
           </div>
         }
 
-        <section class="card panel">
-          <h2>Nueva retrospectiva</h2>
+        @if (error() && !showCreateModal()) {
+          <p class="form-error">{{ error() }}</p>
+        }
+
+        <section class="section">
+          <h2>Miembros</h2>
+          <div class="members">
+            @for (m of t.members; track m.id) {
+              <span class="badge">{{ m.user.name }} · {{ m.role }}</span>
+            }
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Historial</h2>
+          <div class="retro-list">
+            @for (r of t.retrospectives; track r.id) {
+              <div class="card retro-row">
+                <a [routerLink]="['/retros', r.id]">
+                  <strong>{{ r.title }}</strong>
+                  <span class="badge">{{ phaseLabel(r.status) }}</span>
+                </a>
+                @if (isFacilitator()) {
+                  <button
+                    type="button"
+                    class="btn-danger btn-sm"
+                    (click)="deleteRetro(r.id, r.title)"
+                  >
+                    Borrar
+                  </button>
+                }
+              </div>
+            } @empty {
+              <p class="empty-state">Todavía no hay retrospectivas.</p>
+            }
+          </div>
+        </section>
+      }
+    </div>
+
+    @if (showCreateModal()) {
+      <div
+        class="modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-retro-title"
+        (click)="closeCreateModal()"
+      >
+        <div class="card create-modal" (click)="$event.stopPropagation()">
+          <h2 id="create-retro-title">Nueva retrospectiva</h2>
           <form class="create-form" (ngSubmit)="createRetro()">
             <div class="field">
               <label>Título</label>
@@ -126,52 +183,33 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
               <input type="checkbox" [(ngModel)]="allowAnonymous" name="anon" />
               Permitir comentarios anónimos
             </label>
-            <button class="btn-primary" type="submit">Crear retrospectiva</button>
+            @if (error()) {
+              <p class="form-error">{{ error() }}</p>
+            }
+            <div class="modal-actions">
+              <button
+                type="button"
+                class="btn-ghost"
+                (click)="closeCreateModal()"
+              >
+                Cancelar
+              </button>
+              <button class="btn-primary" type="submit">Crear retrospectiva</button>
+            </div>
           </form>
-          @if (error()) {
-            <p class="form-error">{{ error() }}</p>
-          }
-        </section>
-
-        <section class="section">
-          <h2>Miembros</h2>
-          <div class="members">
-            @for (m of t.members; track m.id) {
-              <span class="badge">{{ m.user.name }} · {{ m.role }}</span>
-            }
-          </div>
-        </section>
-
-        <section class="section">
-          <h2>Historial</h2>
-          <div class="retro-list">
-            @for (r of t.retrospectives; track r.id) {
-              <div class="card retro-row">
-                <a [routerLink]="['/retros', r.id]">
-                  <strong>{{ r.title }}</strong>
-                  <span class="badge">{{ phaseLabel(r.status) }}</span>
-                </a>
-                @if (isFacilitator()) {
-                  <button
-                    type="button"
-                    class="btn-danger btn-sm"
-                    (click)="deleteRetro(r.id, r.title)"
-                  >
-                    Borrar
-                  </button>
-                }
-              </div>
-            } @empty {
-              <p class="empty-state">Todavía no hay retrospectivas.</p>
-            }
-          </div>
-        </section>
-      }
-    </div>
+        </div>
+      </div>
+    }
   `,
   styles: `
+    .header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: center;
+    }
     .panel { padding: 1.25rem; margin-bottom: 1.5rem; }
-    .create-form { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 1rem; }
+    .create-form { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 0.85rem; }
     .settings-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -255,6 +293,32 @@ import { PHASE_LABELS, TeamDetail, Template } from '../../core/models';
         border-color: var(--color-brand);
       }
     }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: grid;
+      place-items: center;
+      padding: 1.25rem;
+      background: var(--color-overlay);
+      backdrop-filter: blur(4px);
+    }
+    .create-modal {
+      width: min(720px, 100%);
+      max-height: min(90vh, 900px);
+      overflow: auto;
+      padding: 1.35rem 1.4rem 1.25rem;
+    }
+    .create-modal h2 {
+      margin: 0;
+      font-size: 1.15rem;
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+    }
     @media (max-width: 640px) {
       .invite-row { grid-template-columns: 1fr; }
     }
@@ -278,6 +342,7 @@ export class TeamPage implements OnInit {
   error = signal('');
   reminder = signal<number | null>(null);
   inviteCopied = signal(false);
+  showCreateModal = signal(false);
   private inviteCopyTimer: ReturnType<typeof setTimeout> | null = null;
 
   phaseLabel = (s: keyof typeof PHASE_LABELS) => PHASE_LABELS[s];
@@ -308,6 +373,20 @@ export class TeamPage implements OnInit {
 
   teamInviteUrl(inviteCode: string) {
     return `${window.location.origin}/join-team/${inviteCode}`;
+  }
+
+  openCreateModal() {
+    this.error.set('');
+    this.showCreateModal.set(true);
+  }
+
+  closeCreateModal() {
+    this.showCreateModal.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape() {
+    if (this.showCreateModal()) this.closeCreateModal();
   }
 
   async copyTeamInvite(inviteCode: string) {
@@ -376,6 +455,7 @@ export class TeamPage implements OnInit {
           if (retro.openActionsReminder) {
             this.reminder.set(retro.openActionsReminder);
           }
+          this.closeCreateModal();
           void this.router.navigate(['/retros', retro.id]);
         },
         error: (e) => this.error.set(e?.error?.message || 'Error al crear'),
