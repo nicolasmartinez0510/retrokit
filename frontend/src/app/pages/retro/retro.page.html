@@ -18,6 +18,15 @@
         }
       </div>
       <div class="header-actions">
+        <button
+          type="button"
+          class="btn-ghost btn-sm confetti-btn"
+          title="Lanzar confeti"
+          aria-label="Lanzar confeti"
+          (click)="throwConfetti()"
+        >
+          🎉
+        </button>
         @if (!isSpectator()) {
           @if (timerLeft() !== null) {
             <span class="timer">⏱ {{ formatTime(timerLeft()!) }}</span>

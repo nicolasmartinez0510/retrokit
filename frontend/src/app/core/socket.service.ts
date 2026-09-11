@@ -26,6 +26,10 @@ export class SocketService {
     return s;
   }
 
+  emit(event: string, payload?: unknown) {
+    this.connect().emit(event, payload);
+  }
+
   on(event: string, handler: (...args: unknown[]) => void) {
     this.connect().on(event, handler);
   }

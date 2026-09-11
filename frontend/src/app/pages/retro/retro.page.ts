@@ -16,6 +16,10 @@ import {
   RetroBoard,
   RetroStatus,
 } from '../../core/models';
+import {
+  fireConfettiBurst,
+  prefersReducedMotion,
+} from '../../core/confetti';
 import { SocketService } from '../../core/socket.service';
 import { AutosizeTextareaDirective } from '../../shared/autosize-textarea.directive';
 import { EmojiPickerComponent } from '../../shared/emoji-picker.component';
@@ -74,6 +78,16 @@ export class RetroPage implements OnInit, OnDestroy {
   copiedKind = signal<'guest' | 'member' | null>(null);
   copyToast = signal('');
   private copyToastTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly localConfettiIds = new Set<string>();
+  private lastLocalConfettiAt = 0;
+  private readonly onConfetti = (payload: unknown) => {
+    const id =
+      payload && typeof payload === 'object' && 'id' in payload
+        ? String((payload as { id: unknown }).id)
+        : '';
+    if (!id || this.localConfettiIds.has(id)) return;
+    this.playConfetti();
+  };
   rotiScore = 4;
   rotiComment = '';
   actionTitle = '';
@@ -155,14 +169,39 @@ export class RetroPage implements OnInit, OnDestroy {
       const teamId = this.retro()?.teamId;
       void this.router.navigate(teamId ? ['/teams', teamId] : ['/dashboard']);
     });
+    socket.on('confetti', this.onConfetti);
   }
 
   ngOnDestroy() {
     if (this.timerHandle) clearInterval(this.timerHandle);
     if (this.copyToastTimer) clearTimeout(this.copyToastTimer);
+    this.sockets.off('confetti', this.onConfetti);
     this.clearAllDraftPreviews();
     this.clearEditImagePreview();
     this.sockets.disconnect();
+  }
+
+  throwConfetti() {
+    const r = this.retro();
+    if (!r) return;
+    const now = Date.now();
+    if (now - this.lastLocalConfettiAt < 1000) return;
+    this.lastLocalConfettiAt = now;
+    const id = crypto.randomUUID();
+    this.localConfettiIds.add(id);
+    window.setTimeout(() => this.localConfettiIds.delete(id), 4000);
+    this.playConfetti();
+    this.sockets.emit('throw-confetti', { retroId: r.id, id });
+  }
+
+  private playConfetti() {
+    if (prefersReducedMotion()) {
+      this.copyToast.set('🎉');
+      if (this.copyToastTimer) clearTimeout(this.copyToastTimer);
+      this.copyToastTimer = setTimeout(() => this.copyToast.set(''), 1600);
+      return;
+    }
+    fireConfettiBurst();
   }
 
   reload(id = this.retro()?.id) {
