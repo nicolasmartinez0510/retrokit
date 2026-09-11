@@ -89,7 +89,15 @@
         <h3>Participantes</h3>
         <div class="participants-list">
           @for (p of r.participants; track p.id) {
-            <span class="badge">{{ participantDisplayName(p) }}</span>
+            <span class="badge">
+              <app-user-avatar
+                [avatarId]="p.avatarId ?? p.user?.avatarId"
+                [seed]="p.id"
+                [name]="participantDisplayName(p)"
+                size="sm"
+              />
+              {{ participantDisplayName(p) }}
+            </span>
           } @empty {
             <p class="empty-participants">Todavía no hay participantes.</p>
           }
@@ -188,6 +196,12 @@
               <div class="progress-people">
                 @for (p of progress.participants; track p.participantId) {
                   <span class="person" [class.done]="p.isReady" [class.pending]="!p.isReady">
+                    <app-user-avatar
+                      [avatarId]="p.avatarId"
+                      [seed]="p.participantId"
+                      [name]="p.name"
+                      size="sm"
+                    />
                     {{ p.isReady ? '✓' : '○' }} {{ p.name }}
                     @if (p.commentCount > 0) {
                       ({{ p.commentCount }})
@@ -226,6 +240,12 @@
               <div class="progress-people">
                 @for (p of progress.participants; track p.participantId) {
                   <span class="person" [class.done]="p.isReady" [class.pending]="!p.isReady">
+                    <app-user-avatar
+                      [avatarId]="p.avatarId"
+                      [seed]="p.participantId"
+                      [name]="p.name"
+                      size="sm"
+                    />
                     {{ p.isReady ? '✓' : '○' }} {{ p.name }}
                     @if (p.voteCount > 0) {
                       ({{ p.voteCount }})
@@ -362,7 +382,16 @@
                       </div>
                     }
                     @if (!card.hidden && card.authorName) {
-                      <small>{{ card.authorName }}</small>
+                      <small class="card-author">
+                        @if (card.authorAvatarId) {
+                          <app-user-avatar
+                            [avatarId]="card.authorAvatarId"
+                            [name]="card.authorName"
+                            size="sm"
+                          />
+                        }
+                        {{ card.authorName }}
+                      </small>
                     }
                     @if (canEditCard(card)) {
                       <div class="card-actions">
@@ -476,7 +505,15 @@
             <li>
               <strong>{{ a.title }}</strong>
               @if (a.owner) {
-                <span class="badge">{{ a.owner.name }}</span>
+                <span class="badge">
+                  <app-user-avatar
+                    [avatarId]="a.owner.avatarId"
+                    [seed]="a.owner.id"
+                    [name]="a.owner.name"
+                    size="sm"
+                  />
+                  {{ a.owner.name }}
+                </span>
               }
             </li>
           } @empty {

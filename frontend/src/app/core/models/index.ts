@@ -12,6 +12,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  avatarId?: string | null;
   createdAt?: string;
   type?: 'user' | 'guest';
   participantId?: string;
@@ -67,7 +68,7 @@ export interface TeamSummary {
 export interface TeamMember {
   id: string;
   role: TeamRole;
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; avatarId?: string | null };
 }
 
 export interface TeamJoinRequest {
@@ -75,7 +76,7 @@ export interface TeamJoinRequest {
   teamId: string;
   teamName?: string;
   createdAt: string;
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; avatarId?: string | null };
 }
 
 export interface RetroSummary {
@@ -125,7 +126,8 @@ export interface Participant {
   isGuest: boolean;
   commentsReady?: boolean;
   votesReady?: boolean;
-  user?: { id: string; name: string; email?: string } | null;
+  avatarId?: string | null;
+  user?: { id: string; name: string; email?: string; avatarId?: string | null } | null;
 }
 
 export interface Vote {
@@ -150,6 +152,7 @@ export interface Card {
   createdAt: string;
   hidden?: boolean;
   authorName?: string;
+  authorAvatarId?: string | null;
   author?: Participant;
   votes?: Vote[];
   /** Client-only: images from grouped cards */
@@ -177,6 +180,7 @@ export interface RetroColumn {
 export interface CommentProgressParticipant {
   participantId: string;
   name: string;
+  avatarId?: string | null;
   commentCount: number;
   isReady: boolean;
 }
@@ -191,6 +195,7 @@ export interface CommentProgress {
 export interface VoteProgressParticipant {
   participantId: string;
   name: string;
+  avatarId?: string | null;
   voteCount: number;
   isReady: boolean;
 }
@@ -214,7 +219,7 @@ export interface ActionItem {
   ownerId?: string | null;
   createdAt: string;
   updatedAt?: string;
-  owner?: { id: string; name: string } | null;
+  owner?: { id: string; name: string; avatarId?: string | null } | null;
 }
 
 export interface RetroBoard {

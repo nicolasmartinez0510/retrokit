@@ -126,10 +126,11 @@ export class ApiService {
     );
   }
 
-  joinRetro(code: string, guestName?: string) {
+  joinRetro(code: string, guestName?: string, avatarId?: string) {
     return this.http.post<JoinRetroResponse>(`${this.base}/retros/join`, {
       code,
       guestName,
+      avatarId,
     });
   }
 

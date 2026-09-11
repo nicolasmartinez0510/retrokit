@@ -33,7 +33,12 @@ export class AuthService {
     }
   }
 
-  register(payload: { email: string; password: string; name: string }) {
+  register(payload: {
+    email: string;
+    password: string;
+    name: string;
+    avatarId?: string;
+  }) {
     return this.http
       .post<AuthResponse>(`${environment.apiUrl}/auth/register`, payload)
       .pipe(
@@ -100,12 +105,19 @@ export class AuthService {
     return this.ensureMe();
   }
 
-  setGuestToken(token: string, name: string, retroId: string, participantId: string) {
+  setGuestToken(
+    token: string,
+    name: string,
+    retroId: string,
+    participantId: string,
+    avatarId?: string | null,
+  ) {
     localStorage.setItem(TOKEN_KEY, token);
     const user: User = {
       id: participantId,
       email: '',
       name,
+      avatarId: avatarId ?? undefined,
       type: 'guest',
       participantId,
       retroId,
@@ -125,6 +137,26 @@ export class AuthService {
     this.meRequest = null;
     this.facilitatorRequest = null;
     void this.router.navigateByUrl('/login');
+  }
+
+  updateMe(payload: { avatarId: string }) {
+    return this.http
+      .patch<User>(`${environment.apiUrl}/auth/me`, payload)
+      .pipe(
+        tap((profile) => {
+          const current = this.user();
+          if (!current || current.type === 'guest') return;
+          this.writeUser({
+            ...current,
+            ...profile,
+            type: 'user',
+            isFacilitator:
+              typeof profile.isFacilitator === 'boolean'
+                ? profile.isFacilitator
+                : current.isFacilitator,
+          });
+        }),
+      );
   }
 
   private ensureMe(): Observable<User | null> {

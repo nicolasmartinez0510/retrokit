@@ -3,10 +3,11 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
+import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
   selector: 'app-report-page',
-  imports: [RouterLink, DecimalPipe],
+  imports: [RouterLink, DecimalPipe, UserAvatarComponent],
   template: `
     <div class="page report">
       @if (report(); as r) {
@@ -62,7 +63,14 @@ import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
               <li>
                 {{ a.title }}
                 @if (a.owner) {
-                  — {{ a.owner.name }}
+                  —
+                  <app-user-avatar
+                    [avatarId]="a.owner.avatarId"
+                    [seed]="a.owner.id"
+                    [name]="a.owner.name"
+                    size="sm"
+                  />
+                  {{ a.owner.name }}
                 }
                 <span class="badge">{{ statusLabel(a.status) }}</span>
               </li>
@@ -79,7 +87,7 @@ import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
       h2 { margin-bottom: 0.75rem; font-size: 1.15rem; }
       h3 { margin: 0.85rem 0 0.4rem; font-size: 1rem; color: var(--color-brand); }
       ul { margin: 0; padding-left: 1.1rem; }
-      li { margin-bottom: 0.35rem; white-space: pre-wrap; }
+      li { margin-bottom: 0.35rem; white-space: pre-wrap; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
     }
     .report-thumb {
       display: block;

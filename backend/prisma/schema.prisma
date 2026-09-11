@@ -33,6 +33,7 @@ model User {
   email        String            @unique
   passwordHash String
   name         String
+  avatarId     String?
   createdAt    DateTime          @default(now())
   memberships  TeamMember[]
   participants Participant[]
@@ -143,6 +144,7 @@ model Participant {
   retroId        String
   userId         String?
   guestName      String?
+  avatarId       String?
   isGuest        Boolean        @default(false)
   commentsReady  Boolean        @default(false)
   votesReady     Boolean        @default(false)

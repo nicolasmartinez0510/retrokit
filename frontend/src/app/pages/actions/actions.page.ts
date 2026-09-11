@@ -4,10 +4,11 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { ActionItem, ActionStatus, TeamDetail } from '../../core/models';
+import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
   selector: 'app-actions-page',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, UserAvatarComponent],
   template: `
     <div class="page">
       <div class="page-header">
@@ -53,7 +54,15 @@ import { ActionItem, ActionStatus, TeamDetail } from '../../core/models';
                   }
                 </div>
                 @if (item.owner) {
-                  <span class="badge">{{ item.owner.name }}</span>
+                  <span class="badge">
+                    <app-user-avatar
+                      [avatarId]="item.owner.avatarId"
+                      [seed]="item.owner.id"
+                      [name]="item.owner.name"
+                      size="sm"
+                    />
+                    {{ item.owner.name }}
+                  </span>
                 }
                 <div class="outcome">
                   @if (item.status !== 'done') {

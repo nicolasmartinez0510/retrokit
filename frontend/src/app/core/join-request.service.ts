@@ -143,7 +143,7 @@ function readString(payload: unknown, key: string): string {
 function parseJoinRequest(payload: unknown): TeamJoinRequest | null {
   if (!payload || typeof payload !== 'object') return null;
   const value = payload as Partial<TeamJoinRequest> & {
-    user?: { id?: string; name?: string; email?: string };
+    user?: { id?: string; name?: string; email?: string; avatarId?: string | null };
   };
   if (!value.id || !value.teamId || !value.user?.id || !value.user.name) {
     return null;
@@ -157,6 +157,7 @@ function parseJoinRequest(payload: unknown): TeamJoinRequest | null {
       id: value.user.id,
       name: value.user.name,
       email: value.user.email ?? '',
+      avatarId: value.user.avatarId ?? null,
     },
   };
 }

@@ -11,10 +11,11 @@ import {
   TeamMember,
   Template,
 } from '../../core/models';
+import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
   selector: 'app-team-page',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, UserAvatarComponent],
   template: `
     <div class="page">
       @if (team(); as t) {
@@ -80,6 +81,12 @@ import {
             @for (req of t.joinRequests ?? []; track req.id) {
               <div class="card member-row pending-member">
                 <div class="member-info">
+                  <app-user-avatar
+                    [avatarId]="req.user.avatarId"
+                    [seed]="req.user.id"
+                    [name]="req.user.name"
+                    size="sm"
+                  />
                   <strong>{{ req.user.name }}</strong>
                   <span class="badge">Nuevo · pendiente</span>
                 </div>
@@ -108,6 +115,12 @@ import {
             @for (m of t.members; track m.id) {
               <div class="card member-row">
                 <div class="member-info">
+                  <app-user-avatar
+                    [avatarId]="m.user.avatarId"
+                    [seed]="m.user.id"
+                    [name]="m.user.name"
+                    size="sm"
+                  />
                   <strong>{{ m.user.name }}</strong>
                   <span class="badge">{{ roleLabel(m.role) }}</span>
                 </div>

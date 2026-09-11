@@ -3,10 +3,13 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { randomAvatarId } from '../../core/avatars';
+import { AvatarPickerComponent } from '../../shared/avatar-picker.component';
+import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
   selector: 'app-join-page',
-  imports: [FormsModule],
+  imports: [FormsModule, AvatarPickerComponent, UserAvatarComponent],
   template: `
     <div class="auth-wrap">
       <div class="card auth-card">
@@ -14,7 +17,15 @@ import { AuthService } from '../../core/auth.service';
         <p class="subtitle">Código: {{ code }}</p>
 
         @if (auth.isUser()) {
-          <p class="info">Entrarás como miembro autenticado.</p>
+          <div class="member-preview">
+            <app-user-avatar
+              [avatarId]="auth.user()?.avatarId"
+              [seed]="auth.user()?.id || ''"
+              [name]="auth.user()?.name || ''"
+              size="lg"
+            />
+            <p class="info">Entrarás como miembro autenticado.</p>
+          </div>
           <button
             type="button"
             class="btn-primary"
@@ -25,6 +36,7 @@ import { AuthService } from '../../core/auth.service';
           </button>
         } @else {
           <form (ngSubmit)="joinGuest()">
+            <app-avatar-picker [(avatarId)]="avatarId" />
             <div class="field">
               <label>Tu nombre</label>
               <input [(ngModel)]="name" name="name" required minlength="2" />
@@ -58,6 +70,7 @@ import { AuthService } from '../../core/auth.service';
       display: flex;
       flex-direction: column;
       gap: 1rem;
+      overflow: visible;
     }
     .subtitle,
     .info,
@@ -65,10 +78,19 @@ import { AuthService } from '../../core/auth.service';
       color: var(--color-text-muted);
       font-size: 0.9rem;
     }
+    .member-preview {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .member-preview .info {
+      margin: 0;
+    }
     form {
       display: flex;
       flex-direction: column;
       gap: 1rem;
+      overflow: visible;
     }
   `,
 })
@@ -80,6 +102,7 @@ export class JoinPage implements OnInit {
 
   code = '';
   name = '';
+  avatarId = randomAvatarId();
   loading = signal(false);
   error = signal('');
 
@@ -90,7 +113,7 @@ export class JoinPage implements OnInit {
   joinGuest() {
     this.loading.set(true);
     this.error.set('');
-    this.api.joinRetro(this.code, this.name.trim()).subscribe({
+    this.api.joinRetro(this.code, this.name.trim(), this.avatarId).subscribe({
       next: (res) => {
         if (res.accessToken) {
           this.auth.setGuestToken(
@@ -98,6 +121,7 @@ export class JoinPage implements OnInit {
             this.name.trim(),
             res.retroId,
             res.participant.id,
+            res.participant.avatarId ?? this.avatarId,
           );
         }
         this.loading.set(false);

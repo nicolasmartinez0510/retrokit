@@ -7,6 +7,7 @@ export class JwtPayload {
   sub!: string;
   email?: string;
   name?: string;
+  avatarId?: string;
   type!: 'user' | 'guest' | 'anonymous';
   participantId?: string;
   retroId?: string;

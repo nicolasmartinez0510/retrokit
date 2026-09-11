@@ -5,10 +5,12 @@ import { JoinRequestService } from './core/join-request.service';
 import { ThemeService } from './core/theme.service';
 import { ToastService } from './core/toast.service';
 import { BrandLogo } from './shared/brand-logo.component';
+import { AvatarMenuComponent } from './shared/avatar-menu.component';
+import { UserAvatarComponent } from './shared/user-avatar.component';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, BrandLogo],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, BrandLogo, AvatarMenuComponent, UserAvatarComponent],
   template: `
     <header class="topbar">
       <a routerLink="/" class="brand">
@@ -52,6 +54,11 @@ import { BrandLogo } from './shared/brand-logo.component';
       <div class="topbar-right">
         @if (auth.isUser()) {
           <div class="user-chip">
+            <app-avatar-menu
+              [avatarId]="auth.user()?.avatarId"
+              [seed]="auth.user()?.id || ''"
+              [name]="auth.user()?.name || ''"
+            />
             <span class="user-name">{{ auth.user()?.name }}</span>
             <button
               type="button"
@@ -69,6 +76,12 @@ import { BrandLogo } from './shared/brand-logo.component';
           </div>
         } @else if (auth.isGuest()) {
           <div class="user-chip guest">
+            <app-user-avatar
+              [avatarId]="auth.user()?.avatarId"
+              [seed]="auth.user()?.id || ''"
+              [name]="auth.user()?.name || ''"
+              size="chip"
+            />
             <span class="user-name">Invitado · {{ auth.user()?.name }}</span>
           </div>
         } @else {
@@ -115,6 +128,12 @@ import { BrandLogo } from './shared/brand-logo.component';
         <div class="card join-request-modal">
           <h2 id="join-request-title">Nueva solicitud de equipo</h2>
           <p>
+            <app-user-avatar
+              [avatarId]="request.user.avatarId"
+              [seed]="request.user.id"
+              [name]="request.user.name"
+              size="sm"
+            />
             <strong>{{ request.user.name }}</strong>
             quiere sumarse a
             <strong>{{ request.teamName || 'tu equipo' }}</strong>.
@@ -231,19 +250,21 @@ import { BrandLogo } from './shared/brand-logo.component';
     .user-chip {
       display: flex;
       align-items: center;
-      gap: 0.15rem;
+      gap: 0.4rem;
       min-width: 0;
-      padding: 0.15rem 0.2rem 0.15rem 0.75rem;
+      min-height: 2.15rem;
+      padding: 0.15rem 0.15rem 0.15rem 0.15rem;
       border: 1px solid var(--color-border);
       border-radius: 999px;
       background: var(--color-bg-muted);
     }
     .user-chip.guest {
-      padding: 0.4rem 0.8rem;
+      padding: 0.15rem 0.75rem 0.15rem 0.15rem;
     }
     .user-name {
       color: var(--color-text-muted);
       font-size: 0.9rem;
+      line-height: 1;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -307,6 +328,10 @@ import { BrandLogo } from './shared/brand-logo.component';
       margin: 0;
       color: var(--color-text-muted);
       line-height: 1.45;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem;
     }
     .join-request-actions {
       display: flex;

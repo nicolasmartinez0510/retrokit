@@ -7,10 +7,11 @@ import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { JoinRequestService } from '../../core/join-request.service';
 import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
+import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
   selector: 'app-dashboard-page',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, UserAvatarComponent],
   template: `
     <div class="page">
       <div class="page-header">
@@ -114,7 +115,17 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
               <div class="list-row">
                 <div>
                   <strong>{{ a.title }}</strong>
-                  <span class="muted">{{ a.owner?.name || 'Sin asignar' }} · {{ a.status }}</span>
+                  <span class="muted owner-line">
+                    @if (a.owner) {
+                      <app-user-avatar
+                        [avatarId]="a.owner.avatarId"
+                        [seed]="a.owner.id"
+                        [name]="a.owner.name"
+                        size="sm"
+                      />
+                    }
+                    {{ a.owner?.name || 'Sin asignar' }} · {{ a.status }}
+                  </span>
                 </div>
               </div>
             } @empty {
@@ -241,6 +252,12 @@ import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
     .muted {
       color: var(--color-text-muted);
       font-size: 0.85rem;
+    }
+    .owner-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.15rem;
     }
     .empty-state.compact {
       flex: 1;

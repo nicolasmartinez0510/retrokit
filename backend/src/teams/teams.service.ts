@@ -7,13 +7,10 @@ import {
 import { TeamRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeEventsService } from '../realtime/realtime-events.service';
+import { userPublicSelect } from '../common/avatars';
 import { CreateTeamDto, JoinTeamDto, UpdateTeamDto } from './dto/teams.dto';
 
-const joinRequestUserSelect = {
-  id: true,
-  name: true,
-  email: true,
-} as const;
+const joinRequestUserSelect = userPublicSelect;
 
 @Injectable()
 export class TeamsService {
@@ -32,7 +29,7 @@ export class TeamsService {
       },
       include: {
         members: {
-          include: { user: { select: { id: true, name: true, email: true } } },
+          include: { user: { select: userPublicSelect } },
         },
         retrospectives: {
           orderBy: { createdAt: 'desc' },
@@ -85,7 +82,7 @@ export class TeamsService {
       where: { id: teamId },
       include: {
         members: {
-          include: { user: { select: { id: true, name: true, email: true } } },
+          include: { user: { select: userPublicSelect } },
           orderBy: { id: 'asc' },
         },
         retrospectives: {
@@ -132,7 +129,7 @@ export class TeamsService {
     return this.prisma.teamMember.findMany({
       where: { teamId },
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: userPublicSelect },
       },
     });
   }
@@ -363,7 +360,7 @@ export class TeamsService {
       id: string;
       teamId: string;
       createdAt: Date;
-      user: { id: string; name: string; email: string };
+      user: { id: string; name: string; email: string; avatarId: string | null };
     },
     teamName: string,
   ) {

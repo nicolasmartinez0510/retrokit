@@ -2,6 +2,8 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
+import { randomAvatarId } from '../../core/avatars';
+import { AvatarPickerComponent } from '../../shared/avatar-picker.component';
 import { BrandLogo } from '../../shared/brand-logo.component';
 
 function safeReturnUrl(value: string | null): string | null {
@@ -11,13 +13,14 @@ function safeReturnUrl(value: string | null): string | null {
 
 @Component({
   selector: 'app-register-page',
-  imports: [FormsModule, RouterLink, BrandLogo],
+  imports: [FormsModule, RouterLink, BrandLogo, AvatarPickerComponent],
   template: `
     <div class="auth-wrap">
       <form class="card auth-card" (ngSubmit)="submit()">
         <app-brand-logo [lockup]="true" />
         <h1>Crear cuenta</h1>
         <p class="subtitle">Empieza a facilitar retrospectivas</p>
+        <app-avatar-picker [(avatarId)]="avatarId" />
         <div class="field">
           <label for="name">Nombre</label>
           <input id="name" [(ngModel)]="name" name="name" required />
@@ -64,6 +67,7 @@ function safeReturnUrl(value: string | null): string | null {
       display: flex;
       flex-direction: column;
       gap: 1rem;
+      overflow: visible;
     }
     h1 { font-size: 1.35rem; text-align: center; }
     .subtitle { color: var(--color-text-muted); margin-bottom: 0.5rem; text-align: center; }
@@ -78,6 +82,7 @@ export class RegisterPage implements OnInit {
   name = '';
   email = '';
   password = '';
+  avatarId = randomAvatarId();
   loading = signal(false);
   error = signal('');
   private returnUrl: string | null = null;
@@ -94,7 +99,12 @@ export class RegisterPage implements OnInit {
     this.loading.set(true);
     this.error.set('');
     this.auth
-      .register({ name: this.name, email: this.email, password: this.password })
+      .register({
+        name: this.name,
+        email: this.email,
+        password: this.password,
+        avatarId: this.avatarId,
+      })
       .subscribe({
         next: () => {
           this.loading.set(false);

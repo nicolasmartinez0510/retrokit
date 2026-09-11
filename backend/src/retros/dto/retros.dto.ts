@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -10,6 +11,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { AVATAR_ID_LIST } from '../../common/avatars';
 
 function toOptionalBoolean({ value }: { value: unknown }): boolean | undefined {
   if (value === undefined || value === null || value === '') return undefined;
@@ -91,6 +93,12 @@ export class JoinRetroDto {
   @IsString()
   @MinLength(2)
   guestName?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
+  @IsString()
+  @IsIn(AVATAR_ID_LIST)
+  avatarId?: string;
 }
 
 export class CreateCardDto {

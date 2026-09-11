@@ -1,7 +1,15 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators';
-import { LoginDto, RegisterDto } from './dto/auth.dto';
+import { LoginDto, RegisterDto, UpdateMeDto } from './dto/auth.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { JwtPayload } from './jwt.strategy';
 
@@ -27,12 +35,23 @@ export class AuthController {
         id: user.sub,
         email: '',
         name: user.name ?? '',
+        avatarId: user.avatarId ?? null,
         type: 'guest' as const,
         participantId: user.participantId,
         retroId: user.retroId,
       };
     }
     const profile = await this.auth.me(user.sub);
+    return { ...profile, type: 'user' as const };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  async updateMe(@CurrentUser() user: JwtPayload, @Body() dto: UpdateMeDto) {
+    if (user.type !== 'user') {
+      throw new ForbiddenException('Solo usuarios registrados pueden cambiar el avatar');
+    }
+    const profile = await this.auth.updateMe(user.sub, dto);
     return { ...profile, type: 'user' as const };
   }
 }

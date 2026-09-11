@@ -11,6 +11,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
 import { UploadsService } from '../uploads/uploads.service';
 import {
+  parseAvatarId,
+  resolveParticipantAvatar,
+  userOwnerSelect,
+  userPublicSelect,
+} from '../common/avatars';
+import {
   CreateActionFromRetroDto,
   CreateCardDto,
   CreateRetroDto,
@@ -36,7 +42,7 @@ const boardInclude = {
   columns: { orderBy: { position: 'asc' as const } },
   participants: {
     include: {
-      user: { select: { id: true, name: true, email: true } },
+      user: { select: userPublicSelect },
     },
   },
   groups: {
@@ -49,7 +55,7 @@ const boardInclude = {
     include: {
       author: {
         include: {
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: userPublicSelect },
         },
       },
       votes: true,
@@ -59,7 +65,7 @@ const boardInclude = {
   votes: true,
   actionItems: {
     include: {
-      owner: { select: { id: true, name: true } },
+      owner: { select: userOwnerSelect },
     },
     orderBy: { createdAt: 'asc' as const },
   },
@@ -177,14 +183,19 @@ export class RetrosService {
         throw new BadRequestException('guestName is required');
       }
       const guestName = dto.guestName.trim();
+      const avatarId = parseAvatarId(
+        dto.avatarId,
+        `${retro.id}:${guestName}`,
+      );
       const participant = await this.prisma.participant.create({
         data: {
           retroId: retro.id,
           guestName,
           isGuest: true,
+          avatarId,
         },
         include: {
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: userPublicSelect },
         },
       });
 
@@ -192,6 +203,7 @@ export class RetrosService {
         participant.id,
         retro.id,
         guestName,
+        avatarId,
       );
 
       this.events.emit(retro.id, 'participant-joined', participant);
@@ -382,7 +394,7 @@ export class RetrosService {
         include: {
           author: {
             include: {
-              user: { select: { id: true, name: true, email: true } },
+              user: { select: userPublicSelect },
             },
           },
           votes: true,
@@ -531,7 +543,7 @@ export class RetrosService {
       include: {
         author: {
           include: {
-            user: { select: { id: true, name: true, email: true } },
+            user: { select: userPublicSelect },
           },
         },
         votes: true,
@@ -576,7 +588,7 @@ export class RetrosService {
         include: {
           author: {
             include: {
-              user: { select: { id: true, name: true, email: true } },
+              user: { select: userPublicSelect },
             },
           },
           votes: true,
@@ -628,7 +640,7 @@ export class RetrosService {
       include: {
         author: {
           include: {
-            user: { select: { id: true, name: true, email: true } },
+            user: { select: userPublicSelect },
           },
         },
         votes: true,
@@ -709,7 +721,7 @@ export class RetrosService {
       include: {
         author: {
           include: {
-            user: { select: { id: true, name: true, email: true } },
+            user: { select: userPublicSelect },
           },
         },
         votes: true,
@@ -935,7 +947,7 @@ export class RetrosService {
         ownerId: dto.ownerId || null,
       },
       include: {
-        owner: { select: { id: true, name: true } },
+        owner: { select: userOwnerSelect },
       },
     });
 
@@ -966,6 +978,9 @@ export class RetrosService {
         : (card.author.guestName ??
           card.author.user?.name ??
           'Participant');
+      const authorAvatarId = card.isAnonymous
+        ? null
+        : resolveParticipantAvatar(card.author);
 
       const isOwn = !!participant && card.authorId === participant.id;
       if (hideOthers && !isOwn) {
@@ -975,6 +990,7 @@ export class RetrosService {
           imageUrl: null,
           hidden: true,
           authorName: card.isAnonymous ? 'Anonymous' : 'Hidden',
+          authorAvatarId: null,
         };
       }
 
@@ -982,6 +998,7 @@ export class RetrosService {
         ...card,
         hidden: false,
         authorName,
+        authorAvatarId,
       };
     });
 
@@ -1000,6 +1017,7 @@ export class RetrosService {
       return {
         participantId: p.id,
         name,
+        avatarId: resolveParticipantAvatar(p),
         commentCount,
         isReady: p.commentsReady,
       };
@@ -1015,6 +1033,7 @@ export class RetrosService {
       return {
         participantId: p.id,
         name,
+        avatarId: resolveParticipantAvatar(p),
         voteCount,
         isReady: p.votesReady,
       };
@@ -1031,6 +1050,25 @@ export class RetrosService {
 
     return {
       ...retro,
+      participants: retro.participants.map((p) => ({
+        ...p,
+        avatarId: resolveParticipantAvatar(p),
+        user: p.user
+          ? {
+              ...p.user,
+              avatarId: parseAvatarId(p.user.avatarId, p.user.id),
+            }
+          : p.user,
+      })),
+      actionItems: retro.actionItems.map((a) => ({
+        ...a,
+        owner: a.owner
+          ? {
+              ...a.owner,
+              avatarId: parseAvatarId(a.owner.avatarId, a.owner.id),
+            }
+          : a.owner,
+      })),
       cards,
       commentProgress: {
         written: readyCount,
@@ -1072,7 +1110,7 @@ export class RetrosService {
     let participant = await this.prisma.participant.findFirst({
       where: { retroId, userId, isGuest: false },
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: userPublicSelect },
       },
     });
 
@@ -1084,7 +1122,7 @@ export class RetrosService {
           isGuest: false,
         },
         include: {
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: userPublicSelect },
         },
       });
       this.events.emit(retroId, 'participant-joined', participant);

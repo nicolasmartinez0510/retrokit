@@ -26,6 +26,7 @@ import { SocketService } from '../../core/socket.service';
 import { ToastService } from '../../core/toast.service';
 import { AutosizeTextareaDirective } from '../../shared/autosize-textarea.directive';
 import { EmojiPickerComponent } from '../../shared/emoji-picker.component';
+import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 type SortMode = 'most' | 'least' | 'original';
 
@@ -53,6 +54,7 @@ const CARD_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
     RouterLink,
     AutosizeTextareaDirective,
     EmojiPickerComponent,
+    UserAvatarComponent,
   ],
   templateUrl: './retro.page.html',
   styleUrl: './retro.page.scss',

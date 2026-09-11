@@ -255,12 +255,17 @@ p {
 .badge {
   display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
   background: var(--color-sky-soft);
   color: var(--color-brand);
+}
+
+.badge:has(app-user-avatar) {
+  padding: 0.12rem 0.55rem 0.12rem 0.12rem;
 }
 
 .page {

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
+import { userOwnerSelect } from '../common/avatars';
 import { CreateTeamActionDto, UpdateActionDto } from './dto/action.dto';
 
 @Injectable()
@@ -15,7 +16,7 @@ export class ActionsService {
     return this.prisma.actionItem.findMany({
       where: { teamId },
       include: {
-        owner: { select: { id: true, name: true } },
+        owner: { select: userOwnerSelect },
       },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     });
@@ -35,7 +36,7 @@ export class ActionsService {
         ownerId: dto.ownerId || null,
       },
       include: {
-        owner: { select: { id: true, name: true } },
+        owner: { select: userOwnerSelect },
       },
     });
   }
@@ -58,7 +59,7 @@ export class ActionsService {
         ...(dto.ownerId !== undefined && { ownerId: dto.ownerId }),
       },
       include: {
-        owner: { select: { id: true, name: true } },
+        owner: { select: userOwnerSelect },
       },
     });
   }
