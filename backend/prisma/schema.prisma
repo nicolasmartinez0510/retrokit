@@ -175,15 +175,17 @@ model Card {
   author      Participant   @relation(fields: [authorId], references: [id], onDelete: Cascade)
   group       CardGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
   votes       Vote[]
+  actionItems ActionItem[]
 }
 
 model CardGroup {
-  id      String        @id @default(cuid())
-  retroId String
-  title   String?
-  retro   Retrospective @relation(fields: [retroId], references: [id], onDelete: Cascade)
-  cards   Card[]
-  votes   Vote[]
+  id          String        @id @default(cuid())
+  retroId     String
+  title       String?
+  retro       Retrospective @relation(fields: [retroId], references: [id], onDelete: Cascade)
+  cards       Card[]
+  votes       Vote[]
+  actionItems ActionItem[]
 }
 
 model Vote {
@@ -210,11 +212,16 @@ model ActionItem {
   description String?
   status      ActionStatus   @default(pending)
   ownerId     String?
+  dueDate     DateTime?
+  cardId      String?
+  groupId     String?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
   retro       Retrospective? @relation(fields: [retroId], references: [id], onDelete: SetNull)
   owner       User?          @relation("ActionOwner", fields: [ownerId], references: [id])
+  card        Card?          @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  group       CardGroup?     @relation(fields: [groupId], references: [id], onDelete: SetNull)
 }
 
 model RotiResponse {

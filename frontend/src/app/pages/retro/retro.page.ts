@@ -16,13 +16,20 @@ import { AuthService } from '../../core/auth.service';
 import { parseAvatarChanged } from '../../core/avatars';
 import { httpErrorMessage } from '../../core/http-error';
 import {
+  ActionAssigneeOption,
+  ActionItem,
+  ActionLinkedCard,
   Card,
   Participant,
   PHASE_LABELS,
   PHASES,
   RetroBoard,
+  RetroColumn,
   RetroStatus,
 } from '../../core/models';
+import { formatDueDate } from '../../core/dates';
+import { ActionItemModalComponent } from '../../shared/action-item-modal.component';
+import type { ActionItemSavePayload } from '../../shared/action-item-modal.component';
 import {
   fireConfettiBurst,
   prefersReducedMotion,
@@ -39,6 +46,7 @@ import { EmojiPickerComponent } from '../../shared/emoji-picker.component';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 type SortMode = 'most' | 'least' | 'original';
+type VoteFilter = 'all' | 'voted';
 
 type BoardCard = Card & {
   isGroup?: boolean;
@@ -79,6 +87,7 @@ const CARD_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
     AutosizeTextareaDirective,
     EmojiPickerComponent,
     UserAvatarComponent,
+    ActionItemModalComponent,
   ],
   templateUrl: './retro.page.html',
   styleUrl: './retro.page.scss',
@@ -134,6 +143,17 @@ export class RetroPage implements OnInit, OnDestroy {
   selectedCardId = signal<string | null>(null);
   expandedGroupIds = signal<ReadonlySet<string>>(new Set());
   sortMode = signal<SortMode>('most');
+  voteFilter = signal<VoteFilter>('voted');
+  selectedThemeIds = signal<ReadonlySet<string>>(new Set());
+  showActionModal = signal(false);
+  actionSaving = signal(false);
+  actionFormTitle = '';
+  actionFormDescription = '';
+  actionFormOwnerId = '';
+  actionFormDueDate = '';
+  actionFormCardId: string | null = null;
+  actionFormGroupId: string | null = null;
+  actionFormLinked: ActionLinkedCard[] = [];
   showSettings = false;
   showInvite = false;
   showJoinModal = signal(false);
@@ -153,8 +173,6 @@ export class RetroPage implements OnInit, OnDestroy {
   };
   rotiScore = 4;
   rotiComment = '';
-  actionTitle = '';
-  actionOwnerId = '';
   timerLeft = signal<number | null>(null);
   private timerHandle: ReturnType<typeof setInterval> | null = null;
 
@@ -451,7 +469,7 @@ export class RetroPage implements OnInit, OnDestroy {
     if (next !== board) this.retro.set(next);
   };
 
-  cardsForColumn(columnId: string): BoardCard[] {
+  cardsForColumn(columnId: string, opts?: { sort?: boolean }): BoardCard[] {
     const r = this.retro();
     if (!r) return [];
     let cards: BoardCard[] = r.cards.filter(
@@ -480,7 +498,8 @@ export class RetroPage implements OnInit, OnDestroy {
 
     cards = [...cards, ...grouped];
 
-    if (r.status === 'actions') {
+    const shouldSort = opts?.sort !== false && r.status === 'actions';
+    if (shouldSort) {
       const mode = this.sortMode();
       if (mode !== 'original') {
         cards = [...cards].sort((a, b) => {
@@ -1073,21 +1092,188 @@ export class RetroPage implements OnInit, OnDestroy {
     });
   }
 
-  createAction() {
+  actionPlanThemes(): RetroColumn[] {
+    return this.retro()?.columns ?? [];
+  }
+
+  actionPlanItems(): BoardCard[] {
     const r = this.retro();
-    if (!r || !this.actionTitle.trim()) return;
+    if (!r) return [];
+    let items: BoardCard[] = [];
+    for (const col of r.columns) {
+      if (!this.isThemeSelected(col.id)) continue;
+      items = items.concat(this.cardsForColumn(col.id, { sort: false }));
+    }
+    if (this.voteFilter() === 'voted') {
+      items = items.filter((card) => this.voteCount(card) >= 1);
+    }
+    const mode = this.sortMode();
+    if (mode !== 'original') {
+      items = [...items].sort((a, b) => {
+        const va = this.voteCount(a);
+        const vb = this.voteCount(b);
+        return mode === 'most' ? vb - va : va - vb;
+      });
+    }
+    return items;
+  }
+
+  hasSelectedThemes() {
+    return this.selectedThemeIds().size > 0;
+  }
+
+  isThemeSelected(columnId: string) {
+    return this.selectedThemeIds().has(columnId);
+  }
+
+  toggleTheme(columnId: string) {
+    this.selectedThemeIds.update((set) => {
+      const current = new Set(set);
+      if (current.has(columnId)) current.delete(columnId);
+      else current.add(columnId);
+      return current;
+    });
+  }
+
+  themeVoteTotal(columnId: string) {
+    return this.cardsForColumn(columnId, { sort: false })
+      .filter(
+        (card) => this.voteFilter() !== 'voted' || this.voteCount(card) >= 1,
+      )
+      .reduce((sum, card) => sum + this.voteCount(card), 0);
+  }
+
+  topicPreview(item: BoardCard): string {
+    if (this.isGroupCard(item)) {
+      const titled = this.groupHeading(item);
+      if (titled !== 'Grupo') return titled;
+      const first = (item.members ?? []).find((member) => member.content.trim());
+      return first?.content.trim() || item.content.trim() || 'Grupo';
+    }
+    return item.content.trim() || 'Comentario';
+  }
+
+  groupHeading(item: BoardCard): string {
+    const group = this.retro()?.groups.find((g) => g.id === item.groupId);
+    return group?.title?.trim() || 'Grupo';
+  }
+
+  columnForCard(card: Pick<Card, 'columnId'>) {
+    return this.retro()?.columns.find((col) => col.id === card.columnId);
+  }
+
+  planMembers(card: BoardCard): Card[] {
+    if (this.isGroupCard(card)) return card.members ?? [card];
+    return [card];
+  }
+
+  actionAssignees(): ActionAssigneeOption[] {
+    const r = this.retro();
+    if (!r) return [];
+    const seen = new Set<string>();
+    const people: ActionAssigneeOption[] = [];
+    for (const participant of r.participants) {
+      if (!participant.user || seen.has(participant.user.id)) continue;
+      seen.add(participant.user.id);
+      people.push({
+        id: participant.user.id,
+        name: participant.user.name,
+        avatarId: participant.user.avatarId,
+      });
+    }
+    return people;
+  }
+
+  linkedFromCard(card: Card): ActionLinkedCard {
+    return {
+      id: card.id,
+      content: card.content,
+      imageUrl: card.imageUrl,
+      isAnonymous: card.isAnonymous,
+      authorName: card.authorName,
+      authorAvatarId: card.authorAvatarId,
+      ownerId: card.author?.user?.id ?? null,
+    };
+  }
+
+  openCreateActionFromTopic(item: BoardCard) {
+    if (!this.isParticipant()) return;
+    this.actionFormTitle = this.topicPreview(item).slice(0, 300);
+    this.actionFormDescription = '';
+    this.actionFormOwnerId = '';
+    this.actionFormDueDate = '';
+    if (this.isGroupCard(item)) {
+      this.actionFormCardId = null;
+      this.actionFormGroupId = item.groupId ?? null;
+      this.actionFormLinked = this.planMembers(item).map((member) =>
+        this.linkedFromCard(member),
+      );
+    } else {
+      this.actionFormCardId = item.id;
+      this.actionFormGroupId = null;
+      this.actionFormLinked = [this.linkedFromCard(item)];
+    }
+    this.showActionModal.set(true);
+  }
+
+  openCreateAction() {
+    if (!this.isParticipant()) return;
+    this.actionFormTitle = '';
+    this.actionFormDescription = '';
+    this.actionFormOwnerId = '';
+    this.actionFormDueDate = '';
+    this.actionFormCardId = null;
+    this.actionFormGroupId = null;
+    this.actionFormLinked = [];
+    this.showActionModal.set(true);
+  }
+
+  closeActionModal() {
+    this.showActionModal.set(false);
+    this.actionSaving.set(false);
+  }
+
+  saveActionFromModal(payload: ActionItemSavePayload) {
+    const r = this.retro();
+    if (!r) return;
+    this.actionSaving.set(true);
     this.api
       .createRetroAction(r.id, {
-        title: this.actionTitle,
-        ownerId: this.actionOwnerId || undefined,
+        title: payload.title,
+        description: payload.description || undefined,
+        ownerId: payload.ownerId || undefined,
+        dueDate: payload.dueDate || undefined,
+        cardId: this.actionFormCardId || undefined,
+        groupId: this.actionFormGroupId || undefined,
       })
       .subscribe({
         next: () => {
-          this.actionTitle = '';
+          this.actionSaving.set(false);
+          this.showActionModal.set(false);
           this.reload(r.id);
         },
-        error: (e) => this.error.set(e?.error?.message || 'Error al crear acción'),
+        error: (e) => {
+          this.actionSaving.set(false);
+          this.error.set(e?.error?.message || 'Error al crear acción');
+        },
       });
+  }
+
+  actionOriginLabel(action: ActionItem): string | null {
+    if (action.group?.cards?.length) {
+      return (
+        action.group.title?.trim() ||
+        action.group.cards.find((c) => c.content.trim())?.content ||
+        'Grupo'
+      );
+    }
+    if (action.card?.content?.trim()) return action.card.content;
+    if (action.card) return 'Comentario';
+    return null;
+  }
+
+  dueLabel(iso?: string | null) {
+    return formatDueDate(iso);
   }
 
   inviteUrl(kind: 'guest' | 'member') {

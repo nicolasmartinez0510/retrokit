@@ -1,4 +1,6 @@
+import { Transform } from 'class-transformer';
 import {
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
@@ -13,6 +15,10 @@ export class CreateTeamActionDto {
   @MaxLength(300)
   title!: string;
 
+  @IsString()
+  @MinLength(1)
+  retroId!: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)
@@ -21,6 +27,11 @@ export class CreateTeamActionDto {
   @IsOptional()
   @IsString()
   ownerId?: string;
+
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string | null;
 }
 
 export class UpdateActionDto {
@@ -43,4 +54,9 @@ export class UpdateActionDto {
   @ValidateIf((_, v) => v !== null)
   @IsString()
   ownerId?: string | null;
+
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string | null;
 }

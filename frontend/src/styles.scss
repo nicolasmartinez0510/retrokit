@@ -175,6 +175,88 @@ p {
   border: 1px solid var(--color-border);
 }
 
+.chip-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.2rem;
+  padding: 0.2rem 0.45rem 0.2rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 90%, transparent);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  flex-shrink: 0;
+
+  .chip-select-label {
+    color: var(--color-text-muted);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .chip-select-control {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+
+    &::after {
+      content: '';
+      position: absolute;
+      right: 0.2rem;
+      width: 0.55rem;
+      height: 0.35rem;
+      background: currentColor;
+      opacity: 0.62;
+      clip-path: polygon(0 10%, 100% 10%, 50% 100%);
+      pointer-events: none;
+    }
+  }
+
+  select,
+  .chip-select-value {
+    appearance: none;
+    -webkit-appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    font-weight: 700;
+    padding: 0.28rem 1.25rem 0.28rem 0;
+    margin: 0;
+    min-width: 0;
+    max-width: 14rem;
+    cursor: pointer;
+    outline: none;
+    box-shadow: none;
+    color-scheme: inherit;
+    white-space: nowrap;
+  }
+
+  select:focus,
+  summary:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    color: inherit;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+}
+
 .field {
   display: flex;
   flex-direction: column;

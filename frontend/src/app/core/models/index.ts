@@ -220,6 +220,33 @@ export interface VoteProgress {
   participants: VoteProgressParticipant[];
 }
 
+export interface ActionLinkedCard {
+  id: string;
+  content: string;
+  imageUrl?: string | null;
+  isAnonymous: boolean;
+  authorName?: string;
+  authorAvatarId?: string | null;
+  ownerId?: string | null;
+}
+
+export interface ActionAssigneeOption {
+  id: string;
+  name: string;
+  avatarId?: string | null;
+}
+
+export interface ActionItemWrite {
+  title: string;
+  description?: string | null;
+  ownerId?: string | null;
+  dueDate?: string | null;
+  status?: ActionStatus;
+  retroId?: string;
+  cardId?: string;
+  groupId?: string;
+}
+
 export interface ActionItem {
   id: string;
   teamId: string;
@@ -228,9 +255,19 @@ export interface ActionItem {
   description?: string | null;
   status: ActionStatus;
   ownerId?: string | null;
+  dueDate?: string | null;
+  cardId?: string | null;
+  groupId?: string | null;
   createdAt: string;
   updatedAt?: string;
   owner?: { id: string; name: string; avatarId?: string | null } | null;
+  retro?: { id: string; title: string; createdAt?: string } | null;
+  card?: ActionLinkedCard | null;
+  group?: {
+    id: string;
+    title?: string | null;
+    cards: ActionLinkedCard[];
+  } | null;
 }
 
 export interface RetroBoard {

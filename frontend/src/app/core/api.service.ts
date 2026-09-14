@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environments/environment';
 import {
   ActionItem,
+  ActionItemWrite,
   CreateRetroPayload,
   CreateTemplatePayload,
   JoinRetroResponse,
@@ -287,10 +288,7 @@ export class ApiService {
     return this.http.get<RetroReport>(`${this.base}/retros/${id}/report`);
   }
 
-  createRetroAction(
-    id: string,
-    body: { title: string; description?: string; ownerId?: string },
-  ) {
+  createRetroAction(id: string, body: ActionItemWrite) {
     return this.http.post(`${this.base}/retros/${id}/actions`, body);
   }
 
@@ -303,10 +301,7 @@ export class ApiService {
     return this.http.get<ActionItem[]>(`${this.base}/teams/${teamId}/actions`);
   }
 
-  createAction(
-    teamId: string,
-    body: { title: string; description?: string; ownerId?: string },
-  ) {
+  createAction(teamId: string, body: ActionItemWrite) {
     return this.http.post(`${this.base}/teams/${teamId}/actions`, body);
   }
 

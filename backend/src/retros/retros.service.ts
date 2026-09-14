@@ -13,9 +13,13 @@ import { UploadsService } from '../uploads/uploads.service';
 import {
   parseAvatarId,
   resolveParticipantAvatar,
-  userOwnerSelect,
   userPublicSelect,
 } from '../common/avatars';
+import {
+  actionItemInclude,
+  parseOptionalDueDate,
+  serializeActionItem,
+} from '../common/action-item';
 import {
   CreateActionFromRetroDto,
   CreateCardDto,
@@ -65,9 +69,7 @@ const boardInclude = {
   },
   votes: true,
   actionItems: {
-    include: {
-      owner: { select: userOwnerSelect },
-    },
+    include: actionItemInclude,
     orderBy: { createdAt: 'asc' as const },
   },
   team: { select: { id: true, name: true } },
@@ -1034,6 +1036,26 @@ export class RetrosService {
     }
     await this.requireParticipant(user, retroId);
 
+    if (dto.cardId && dto.groupId) {
+      throw new BadRequestException('Link either a card or a group, not both');
+    }
+
+    let cardId: string | null = null;
+    let groupId: string | null = null;
+    if (dto.groupId) {
+      const group = await this.prisma.cardGroup.findFirst({
+        where: { id: dto.groupId, retroId },
+      });
+      if (!group) throw new BadRequestException('Group not found');
+      groupId = group.id;
+    } else if (dto.cardId) {
+      const card = await this.prisma.card.findFirst({
+        where: { id: dto.cardId, retroId },
+      });
+      if (!card) throw new BadRequestException('Card not found');
+      cardId = card.id;
+    }
+
     const action = await this.prisma.actionItem.create({
       data: {
         teamId: retro.teamId,
@@ -1041,14 +1063,16 @@ export class RetrosService {
         title: dto.title.trim(),
         description: dto.description?.trim() || null,
         ownerId: dto.ownerId || null,
+        dueDate: parseOptionalDueDate(dto.dueDate) ?? null,
+        cardId,
+        groupId,
       },
-      include: {
-        owner: { select: userOwnerSelect },
-      },
+      include: actionItemInclude,
     });
 
-    this.events.emit(retroId, 'action-created', action);
-    return action;
+    const payload = serializeActionItem(action);
+    this.events.emit(retroId, 'action-created', payload);
+    return payload;
   }
 
   private async getBoard(
@@ -1158,15 +1182,7 @@ export class RetrosService {
             }
           : p.user,
       })),
-      actionItems: retro.actionItems.map((a) => ({
-        ...a,
-        owner: a.owner
-          ? {
-              ...a.owner,
-              avatarId: parseAvatarId(a.owner.avatarId, a.owner.id),
-            }
-          : a.owner,
-      })),
+      actionItems: retro.actionItems.map(serializeActionItem),
       cards,
       commentProgress: {
         written: readyCount,

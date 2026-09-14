@@ -1,7 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
-import { userOwnerSelect } from '../common/avatars';
+import {
+  actionItemInclude,
+  parseOptionalDueDate,
+  serializeActionItem,
+} from '../common/action-item';
 import { CreateTeamActionDto, UpdateActionDto } from './dto/action.dto';
 
 @Injectable()
@@ -13,13 +21,12 @@ export class ActionsService {
 
   async listForTeam(userId: string, teamId: string) {
     await this.teams.assertMember(userId, teamId);
-    return this.prisma.actionItem.findMany({
+    const items = await this.prisma.actionItem.findMany({
       where: { teamId },
-      include: {
-        owner: { select: userOwnerSelect },
-      },
+      include: actionItemInclude,
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     });
+    return items.map(serializeActionItem);
   }
 
   async createForTeam(
@@ -28,17 +35,25 @@ export class ActionsService {
     dto: CreateTeamActionDto,
   ) {
     await this.teams.assertMember(userId, teamId);
-    return this.prisma.actionItem.create({
+    const retro = await this.prisma.retrospective.findFirst({
+      where: { id: dto.retroId, teamId },
+      select: { id: true },
+    });
+    if (!retro) {
+      throw new BadRequestException('Retrospective not found');
+    }
+    const action = await this.prisma.actionItem.create({
       data: {
         teamId,
+        retroId: retro.id,
         title: dto.title.trim(),
         description: dto.description?.trim() || null,
         ownerId: dto.ownerId || null,
+        dueDate: parseOptionalDueDate(dto.dueDate) ?? null,
       },
-      include: {
-        owner: { select: userOwnerSelect },
-      },
+      include: actionItemInclude,
     });
+    return serializeActionItem(action);
   }
 
   async update(userId: string, actionId: string, dto: UpdateActionDto) {
@@ -48,7 +63,9 @@ export class ActionsService {
     if (!action) throw new NotFoundException('Action not found');
     await this.teams.assertMember(userId, action.teamId);
 
-    return this.prisma.actionItem.update({
+    const dueDate = parseOptionalDueDate(dto.dueDate);
+
+    const updated = await this.prisma.actionItem.update({
       where: { id: actionId },
       data: {
         ...(dto.title !== undefined && { title: dto.title.trim() }),
@@ -57,11 +74,11 @@ export class ActionsService {
         }),
         ...(dto.status !== undefined && { status: dto.status }),
         ...(dto.ownerId !== undefined && { ownerId: dto.ownerId }),
+        ...(dueDate !== undefined && { dueDate }),
       },
-      include: {
-        owner: { select: userOwnerSelect },
-      },
+      include: actionItemInclude,
     });
+    return serializeActionItem(updated);
   }
 
   async updateForTeam(

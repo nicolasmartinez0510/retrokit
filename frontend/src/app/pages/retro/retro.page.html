@@ -373,13 +373,24 @@
           }
         }
         @if (r.status === 'actions') {
-          <label class="sort">
-            Ordenar:
-            <select [ngModel]="sortMode()" (ngModelChange)="sortMode.set($event)" name="sort">
-              <option value="most">Más votados</option>
-              <option value="least">Menos votados</option>
-              <option value="original">Original</option>
-            </select>
+          <label class="chip-select">
+            <span class="chip-select-label">Ordenar</span>
+            <span class="chip-select-control">
+              <select [ngModel]="sortMode()" (ngModelChange)="sortMode.set($event)" name="sort">
+                <option value="most">Más votados</option>
+                <option value="least">Menos votados</option>
+                <option value="original">Original</option>
+              </select>
+            </span>
+          </label>
+          <label class="chip-select">
+            <span class="chip-select-label">Votos</span>
+            <span class="chip-select-control">
+              <select [ngModel]="voteFilter()" (ngModelChange)="voteFilter.set($event)" name="voteFilter">
+                <option value="all">Todos</option>
+                <option value="voted">1+ voto</option>
+              </select>
+            </span>
           </label>
         }
         @if (r.status === 'grouping' && isParticipant()) {
@@ -389,6 +400,199 @@
         }
       </div>
 
+      @if (r.status === 'actions') {
+        <div class="action-plan">
+          <section class="card action-plan-col topics">
+            <h2>Temas</h2>
+            <ul class="topic-list">
+              @for (col of actionPlanThemes(); track col.id) {
+                <li>
+                  <button
+                    type="button"
+                    class="topic-row"
+                    [class.selected]="isThemeSelected(col.id)"
+                    [attr.aria-pressed]="isThemeSelected(col.id)"
+                    (click)="toggleTheme(col.id)"
+                  >
+                    <span
+                      class="topic-check"
+                      [class.on]="isThemeSelected(col.id)"
+                      aria-hidden="true"
+                    ></span>
+                    <span class="topic-copy">
+                      <span class="topic-col">
+                        @if (col.logoUrl) {
+                          <img [src]="col.logoUrl" alt="" />
+                        } @else {
+                          <span class="icon">{{ col.icon || '•' }}</span>
+                        }
+                        {{ col.title }}
+                      </span>
+                    </span>
+                    <span class="topic-votes">
+                      {{ themeVoteTotal(col.id) }}
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                </li>
+              } @empty {
+                <li class="empty-topics">No hay temas para mostrar.</li>
+              }
+            </ul>
+          </section>
+
+          <section class="action-plan-col detail">
+            @if (actionPlanItems(); as items) {
+              @if (items.length) {
+                <div class="detail-cards">
+                  @for (item of items; track item.id) {
+                    <article class="neatro-item">
+                      <header>
+                        @if (columnForCard(item); as col) {
+                          <h3>
+                            @if (col.logoUrl) {
+                              <img class="col-logo-sm" [src]="col.logoUrl" alt="" />
+                            } @else {
+                              <span class="icon">{{ col.icon || '•' }}</span>
+                            }
+                            {{ col.title }}
+                          </h3>
+                        }
+                        <span class="neatro-votes">
+                          {{ voteCount(item) }}
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                              d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3z"
+                            />
+                          </svg>
+                        </span>
+                      </header>
+
+                      @if (isGroupCard(item)) {
+                        <div class="neatro-group">
+                          <button
+                            type="button"
+                            class="neatro-group-label"
+                            (click)="toggleStack(item, $event)"
+                          >
+                            <span class="neatro-count">{{ item.groupSize }}</span>
+                            <span>{{ groupHeading(item) }}</span>
+                          </button>
+                          <div
+                            class="neatro-stack"
+                            [class.expanded]="isStackExpanded(item)"
+                          >
+                            @if (!isStackExpanded(item)) {
+                              <div class="neatro-sheet sheet-2" aria-hidden="true"></div>
+                              <div class="neatro-sheet sheet-1" aria-hidden="true"></div>
+                            }
+                            <div class="neatro-notes">
+                              @for (member of visibleStackMembers(item); track member.id) {
+                                <div class="neatro-note">
+                                  <ng-container
+                                    *ngTemplateOutlet="
+                                      stickyView;
+                                      context: { $implicit: member }
+                                    "
+                                  />
+                                </div>
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      } @else {
+                        <ng-container
+                          *ngTemplateOutlet="
+                            stickyView;
+                            context: { $implicit: item }
+                          "
+                        />
+                      }
+
+                      @if (isParticipant()) {
+                        <button
+                          type="button"
+                          class="neatro-create"
+                          (click)="openCreateActionFromTopic(item)"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z"
+                            />
+                            <path d="M16.5 3.5v4h4" />
+                          </svg>
+                          Crear acción
+                        </button>
+                      }
+                    </article>
+                  }
+                </div>
+              } @else {
+                <p class="empty-detail">
+                  @if (hasSelectedThemes()) {
+                    No hay tarjetas con estos filtros.
+                  } @else {
+                    Seleccioná uno o más temas a la izquierda.
+                  }
+                </p>
+              }
+            }
+          </section>
+
+          <section class="card action-plan-col plan">
+            <header class="plan-head">
+              <h2>Plan de acciones</h2>
+              @if (isParticipant()) {
+                <button
+                  type="button"
+                  class="btn-ghost btn-sm"
+                  (click)="openCreateAction()"
+                >
+                  Agregar
+                </button>
+              }
+            </header>
+            <ul class="plan-list">
+              @for (a of r.actionItems; track a.id) {
+                <li>
+                  <strong>{{ a.title }}</strong>
+                  @if (a.description) {
+                    <p>{{ a.description }}</p>
+                  }
+                  <div class="plan-meta">
+                    @if (a.owner) {
+                      <span class="badge">
+                        <app-user-avatar
+                          [avatarId]="a.owner.avatarId"
+                          [ownerId]="a.owner.id"
+                          [seed]="a.owner.id"
+                          [name]="a.owner.name"
+                          size="sm"
+                        />
+                        {{ a.owner.name }}
+                      </span>
+                    }
+                    @if (dueLabel(a.dueDate)) {
+                      <span class="due">{{ dueLabel(a.dueDate) }}</span>
+                    }
+                  </div>
+                  @if (actionOriginLabel(a); as origin) {
+                    <span class="origin">{{ origin }}</span>
+                  }
+                </li>
+              } @empty {
+                <li class="empty-plan">
+                  Discutí los comentarios más votados y creá acciones.
+                </li>
+              }
+            </ul>
+          </section>
+        </div>
+      } @else {
       <div class="board">
         @for (col of r.columns; track col.id) {
           <section class="column">
@@ -414,7 +618,7 @@
                     [class.selected]="selectedCardId() === card.id"
                     [class.group-target]="isGroupTarget(card)"
                     [class.groupable]="isGroupingSelect(card)"
-                    [class.stack-clickable]="r.status === 'voting' || r.status === 'actions'"
+                    [class.stack-clickable]="r.status === 'voting'"
                     (click)="onBoardCardClick(card, $event)"
                   >
                     @if (!isStackExpanded(card)) {
@@ -570,7 +774,7 @@
                               </div>
                             }
                           }
-                          @if (member.id === card.id && (r.status === 'voting' || r.status === 'actions')) {
+                          @if (member.id === card.id && r.status === 'voting') {
                             <ng-container
                               *ngTemplateOutlet="
                                 voteRow;
@@ -666,7 +870,7 @@
                         </div>
                       }
                     }
-                    @if (r.status === 'voting' || r.status === 'actions') {
+                    @if (r.status === 'voting') {
                       <ng-container
                         *ngTemplateOutlet="voteRow; context: { $implicit: card }"
                       />
@@ -733,51 +937,7 @@
           </section>
         }
       </div>
-    }
-
-    @if (r.status === 'actions') {
-      <div class="card panel action-panel">
-        @if (isParticipant()) {
-          <h3>Crear acción</h3>
-          <div class="action-form">
-            <input [(ngModel)]="actionTitle" name="actionTitle" placeholder="Descripción de la acción" />
-            <select [(ngModel)]="actionOwnerId" name="owner">
-              <option value="">Sin asignar</option>
-              @for (p of r.participants; track p.id) {
-                @if (p.user) {
-                  <option [value]="p.user.id">{{ p.user.name }}</option>
-                }
-              }
-            </select>
-            <button type="button" class="btn-primary" (click)="createAction()">Agregar</button>
-          </div>
-        } @else {
-          <h3>Acciones</h3>
-        }
-        <ul class="action-list">
-          @for (a of r.actionItems; track a.id) {
-            <li>
-              <strong>{{ a.title }}</strong>
-              @if (a.owner) {
-                <span class="badge">
-                  <app-user-avatar
-                    [avatarId]="a.owner.avatarId"
-                    [ownerId]="a.owner.id"
-                    [seed]="a.owner.id"
-                    [name]="a.owner.name"
-                    size="sm"
-                  />
-                  {{ a.owner.name }}
-                </span>
-              }
-            </li>
-          } @empty {
-            @if (isSpectator()) {
-              <li class="empty-participants">Todavía no hay acciones.</li>
-            }
-          }
-        </ul>
-      </div>
+      }
     }
 
     @if (r.status === 'roti' && isParticipant()) {
@@ -915,6 +1075,21 @@
         }
       </div>
     </ng-template>
+
+    @if (showActionModal()) {
+      <app-action-item-modal
+        [title]="actionFormTitle"
+        [description]="actionFormDescription"
+        [ownerId]="actionFormOwnerId"
+        [dueDate]="actionFormDueDate"
+        [assignees]="actionAssignees()"
+        [linkedComments]="actionFormLinked"
+        saveLabel="Guardar acción"
+        [saving]="actionSaving()"
+        (save)="saveActionFromModal($event)"
+        (discard)="closeActionModal()"
+      />
+    }
 
     @if (showJoinModal()) {
       <div class="join-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="join-modal-title">

@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
+  IsDateString,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -193,15 +194,30 @@ export class RotiDto {
 export class CreateActionFromRetroDto {
   @IsString()
   @MinLength(2)
+  @MaxLength(300)
   title!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string;
 
   @IsOptional()
   @IsString()
   ownerId?: string;
+
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string | null;
+
+  @IsOptional()
+  @IsString()
+  cardId?: string;
+
+  @IsOptional()
+  @IsString()
+  groupId?: string;
 }
 
 export class SetCommentsReadyDto {

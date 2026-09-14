@@ -2,7 +2,8 @@ import { DecimalPipe } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
-import { ACTION_STATUS_LABELS, RetroReport } from '../../core/models';
+import { formatDueDate } from '../../core/dates';
+import { ACTION_STATUS_LABELS, ActionItem, RetroReport } from '../../core/models';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
@@ -62,6 +63,9 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
             @for (a of r.actionItems; track a.id) {
               <li>
                 {{ a.title }}
+                @if (a.description) {
+                  — {{ a.description }}
+                }
                 @if (a.owner) {
                   —
                   <app-user-avatar
@@ -72,6 +76,12 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                     size="sm"
                   />
                   {{ a.owner.name }}
+                }
+                @if (dueLabel(a.dueDate)) {
+                  <span class="badge">{{ dueLabel(a.dueDate) }}</span>
+                }
+                @if (originLabel(a); as origin) {
+                  <span class="badge">{{ origin }}</span>
                 }
                 <span class="badge">{{ statusLabel(a.status) }}</span>
               </li>
@@ -137,6 +147,23 @@ export class ReportPage implements OnInit {
 
   statusLabel(status: keyof typeof ACTION_STATUS_LABELS) {
     return ACTION_STATUS_LABELS[status];
+  }
+
+  dueLabel(iso?: string | null) {
+    return formatDueDate(iso);
+  }
+
+  originLabel(action: ActionItem) {
+    if (action.group?.cards?.length) {
+      return (
+        action.group.title?.trim() ||
+        action.group.cards.find((c) => c.content.trim())?.content ||
+        'Grupo'
+      );
+    }
+    if (action.card?.content?.trim()) return action.card.content;
+    if (action.card) return 'Comentario';
+    return null;
   }
 
   print() {
