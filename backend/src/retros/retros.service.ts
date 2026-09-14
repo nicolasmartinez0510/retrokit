@@ -23,6 +23,7 @@ import {
   GroupCardsDto,
   JoinRetroDto,
   RotiDto,
+  TimerAddDto,
   TimerDto,
   UpdateSettingsDto,
   VoteDto,
@@ -313,6 +314,7 @@ export class RetrosService {
           ? { closedAt: new Date(), timerEndsAt: null }
           : { closedAt: null }),
         timerEndsAt: null,
+        timerPausedRemaining: null,
       },
     });
 
@@ -852,38 +854,125 @@ export class RetrosService {
     const timerEndsAt = new Date(Date.now() + seconds * 1000);
     const updated = await this.prisma.retrospective.update({
       where: { id: retroId },
-      data: { timerSeconds: seconds, timerEndsAt },
+      data: { timerSeconds: seconds, timerEndsAt, timerPausedRemaining: null },
     });
 
-    this.events.emit(retroId, 'timer-updated', {
-      timerSeconds: updated.timerSeconds,
-      timerEndsAt: updated.timerEndsAt,
-      running: true,
-    });
+    this.emitTimer(retroId, updated);
 
     return {
       timerSeconds: updated.timerSeconds,
       timerEndsAt: updated.timerEndsAt,
+      timerPausedRemaining: updated.timerPausedRemaining,
     };
+  }
+
+  async pauseTimer(user: JwtPayload, retroId: string) {
+    await this.assertFacilitatorOfRetro(user, retroId);
+    const retro = await this.getRetroOrThrow(retroId);
+    if (!retro.timerEndsAt) {
+      throw new BadRequestException('El timer no está en marcha');
+    }
+    const remaining = Math.max(
+      0,
+      Math.ceil((retro.timerEndsAt.getTime() - Date.now()) / 1000),
+    );
+    const updated = await this.prisma.retrospective.update({
+      where: { id: retroId },
+      data:
+        remaining < 1
+          ? { timerEndsAt: null, timerPausedRemaining: null }
+          : { timerEndsAt: null, timerPausedRemaining: remaining },
+    });
+    this.emitTimer(retroId, updated);
+    return {
+      timerSeconds: updated.timerSeconds,
+      timerEndsAt: updated.timerEndsAt,
+      timerPausedRemaining: updated.timerPausedRemaining,
+    };
+  }
+
+  async resumeTimer(user: JwtPayload, retroId: string) {
+    await this.assertFacilitatorOfRetro(user, retroId);
+    const retro = await this.getRetroOrThrow(retroId);
+    const remaining = retro.timerPausedRemaining;
+    if (remaining == null || remaining < 1) {
+      throw new BadRequestException('El timer no está en pausa');
+    }
+    const timerEndsAt = new Date(Date.now() + remaining * 1000);
+    const updated = await this.prisma.retrospective.update({
+      where: { id: retroId },
+      data: { timerEndsAt, timerPausedRemaining: null },
+    });
+    this.emitTimer(retroId, updated);
+    return {
+      timerSeconds: updated.timerSeconds,
+      timerEndsAt: updated.timerEndsAt,
+      timerPausedRemaining: updated.timerPausedRemaining,
+    };
+  }
+
+  async addTimerSeconds(user: JwtPayload, retroId: string, dto: TimerAddDto) {
+    await this.assertFacilitatorOfRetro(user, retroId);
+    const retro = await this.getRetroOrThrow(retroId);
+    const extra = dto.seconds ?? 60;
+    if (retro.timerEndsAt) {
+      const base = Math.max(Date.now(), retro.timerEndsAt.getTime());
+      const updated = await this.prisma.retrospective.update({
+        where: { id: retroId },
+        data: { timerEndsAt: new Date(base + extra * 1000) },
+      });
+      this.emitTimer(retroId, updated);
+      return {
+        timerSeconds: updated.timerSeconds,
+        timerEndsAt: updated.timerEndsAt,
+        timerPausedRemaining: updated.timerPausedRemaining,
+      };
+    }
+    if (retro.timerPausedRemaining != null) {
+      const updated = await this.prisma.retrospective.update({
+        where: { id: retroId },
+        data: { timerPausedRemaining: retro.timerPausedRemaining + extra },
+      });
+      this.emitTimer(retroId, updated);
+      return {
+        timerSeconds: updated.timerSeconds,
+        timerEndsAt: updated.timerEndsAt,
+        timerPausedRemaining: updated.timerPausedRemaining,
+      };
+    }
+    throw new BadRequestException('El timer no está activo');
   }
 
   async stopTimer(user: JwtPayload, retroId: string) {
     await this.assertFacilitatorOfRetro(user, retroId);
     const updated = await this.prisma.retrospective.update({
       where: { id: retroId },
-      data: { timerEndsAt: null },
+      data: { timerEndsAt: null, timerPausedRemaining: null },
     });
 
-    this.events.emit(retroId, 'timer-updated', {
-      timerSeconds: updated.timerSeconds,
-      timerEndsAt: null,
-      running: false,
-    });
+    this.emitTimer(retroId, updated);
 
     return {
       timerSeconds: updated.timerSeconds,
       timerEndsAt: null,
+      timerPausedRemaining: null,
     };
+  }
+
+  private emitTimer(
+    retroId: string,
+    retro: {
+      timerSeconds: number | null;
+      timerEndsAt: Date | null;
+      timerPausedRemaining: number | null;
+    },
+  ) {
+    this.events.emit(retroId, 'timer-updated', {
+      timerSeconds: retro.timerSeconds,
+      timerEndsAt: retro.timerEndsAt,
+      timerPausedRemaining: retro.timerPausedRemaining,
+      running: !!retro.timerEndsAt,
+    });
   }
 
   async submitRoti(user: JwtPayload, retroId: string, dto: RotiDto) {

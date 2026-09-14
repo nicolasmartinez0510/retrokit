@@ -3,7 +3,6 @@
     class="retro-scene"
     [class.has-theme]="!!r.backgroundColor || !!r.backgroundImageUrl"
     [class.has-image]="!!r.backgroundImageUrl"
-    [class.has-facilitator-bar]="isFacilitator() && !!nextPhase() && r.status !== 'roti'"
     [style.background-color]="r.backgroundColor || null"
   >
     @if (r.backgroundImageUrl) {
@@ -23,38 +22,121 @@
         }
       </div>
       <div class="header-actions">
-        <button
-          type="button"
-          class="btn-ghost btn-sm confetti-btn"
-          title="Lanzar confeti"
-          aria-label="Lanzar confeti"
-          (click)="throwConfetti()"
-        >
-          🎉
-        </button>
         @if (!isSpectator()) {
-          @if (timerLeft() !== null) {
-            <span class="timer">⏱ {{ formatTime(timerLeft()!) }}</span>
-          }
-          <button type="button" class="btn-secondary btn-sm" (click)="showInvite = !showInvite">
-            Invitar
+          <button
+            type="button"
+            class="btn-ghost btn-sm header-icon-btn"
+            title="Invitar"
+            aria-label="Invitar"
+            [class.active]="showInvite"
+            (click)="toggleInvite()"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M6.25 6.375a4.125 4.125 0 1 1 8.25 0 4.125 4.125 0 0 1-8.25 0ZM3.25 19.125a7.125 7.125 0 0 1 14.25 0v.003l-.001.119a.75.75 0 0 1-.363.63 13.067 13.067 0 0 1-6.761 1.873c-2.472 0-4.786-.684-6.76-1.873a.75.75 0 0 1-.364-.63l-.001-.122ZM19.75 7.5a.75.75 0 0 0-1.5 0v2.25H16a.75.75 0 0 0 0 1.5h2.25v2.25a.75.75 0 0 0 1.5 0v-2.25H22a.75.75 0 0 0 0-1.5h-2.25V7.5Z"
+              />
+            </svg>
           </button>
           @if (isFacilitator()) {
-            <button type="button" class="btn-ghost btn-sm" (click)="showSettings = !showSettings">
-              Ajustes
+            <button
+              type="button"
+              class="btn-ghost btn-sm header-icon-btn"
+              title="Ajustes"
+              aria-label="Ajustes"
+              [class.active]="showSettings"
+              (click)="toggleSettings()"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill-rule="evenodd"
+                  clip-rule="evenodd"
+                  d="M11.078 2.25c-.917 0-1.699.663-1.85 1.567L9.05 4.889c-.02.12-.115.26-.297.348a7.493 7.493 0 0 0-.986.57c-.166.115-.334.126-.45.083L6.3 5.508a1.875 1.875 0 0 0-2.282.819l-.922 1.597a1.875 1.875 0 0 0 .432 2.385l.84.692c.095.078.17.229.154.43a7.598 7.598 0 0 0 0 1.139c.015.2-.06.352-.155.43l-.84.692a1.875 1.875 0 0 0-.432 2.385l.922 1.597a1.875 1.875 0 0 0 2.282.818l1.018-.382c.115-.043.283-.031.45.082.312.214.641.405.985.57.182.088.277.228.297.35l.178 1.071c.151.904.933 1.567 1.85 1.567h1.844c.916 0 1.699-.663 1.85-1.567l.178-1.072c.02-.12.114-.26.297-.349.344-.165.673-.356.985-.57.167-.114.335-.125.45-.082l1.017.381a1.875 1.875 0 0 0 2.283-.819l.921-1.597a1.875 1.875 0 0 0-.432-2.385l-.84-.692c-.095-.078-.17-.229-.154-.43a7.614 7.614 0 0 0 0-1.139c-.016-.2.06-.352.155-.43l.84-.692c.708-.582.891-1.59.433-2.385l-.922-1.597a1.875 1.875 0 0 0-2.282-.818l-1.018.382c-.114.043-.282.031-.449-.083a7.49 7.49 0 0 0-.985-.57c-.183-.087-.277-.227-.297-.348l-.179-1.072a1.875 1.875 0 0 0-1.85-1.567h-1.843ZM12 15.75a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z"
+                />
+              </svg>
             </button>
             <div class="timer-controls">
+              <span class="timer">{{ formatTime(timerDisplaySeconds()) }}</span>
+              @if (isTimerRunning()) {
+                <button
+                  type="button"
+                  class="btn-ghost btn-sm header-icon-btn"
+                  title="Pausar timer"
+                  aria-label="Pausar timer"
+                  (click)="pauseTimer()"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M5.25 4.5A.75.75 0 0 0 4.5 5.25v13.5a.75.75 0 0 0 .75.75h3a.75.75 0 0 0 .75-.75V5.25a.75.75 0 0 0-.75-.75h-3Zm10.5 0a.75.75 0 0 0-.75.75v13.5a.75.75 0 0 0 .75.75h3a.75.75 0 0 0 .75-.75V5.25a.75.75 0 0 0-.75-.75h-3Z"
+                    />
+                  </svg>
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="btn-ghost btn-sm header-icon-btn"
+                  [title]="isTimerPaused() ? 'Reanudar timer' : 'Iniciar timer'"
+                  [attr.aria-label]="isTimerPaused() ? 'Reanudar timer' : 'Iniciar timer'"
+                  (click)="playTimer()"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill-rule="evenodd"
+                      clip-rule="evenodd"
+                      d="M4.5 5.653c0-1.427 1.529-2.33 2.779-1.643l11.54 6.347c1.295.712 1.295 2.573 0 3.286L7.28 19.99c-1.25.687-2.779-.217-2.779-1.643V5.653Z"
+                    />
+                  </svg>
+                </button>
+              }
+              <button
+                type="button"
+                class="btn-ghost btn-sm header-icon-btn"
+                title="Detener timer"
+                aria-label="Detener timer"
+                [disabled]="!isTimerRunning() && !isTimerPaused()"
+                (click)="stopTimer()"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9A2.25 2.25 0 0 1 18.75 7.5v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z"
+                  />
+                </svg>
+              </button>
+              @if (isTimerRunning()) {
+                <button
+                  type="button"
+                  class="btn-ghost btn-sm header-icon-btn timer-add-btn"
+                  title="Sumar 1 minuto"
+                  aria-label="Sumar 1 minuto"
+                  (click)="addTimerMinute()"
+                >
+                  +1
+                </button>
+              }
+              @if (isTimerRunning() || isTimerPaused()) {
+                <button
+                  type="button"
+                  class="btn-ghost btn-sm header-icon-btn"
+                  title="Reiniciar timer"
+                  aria-label="Reiniciar timer"
+                  (click)="resetTimer()"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill-rule="evenodd"
+                      clip-rule="evenodd"
+                      d="M4.755 10.059a7.5 7.5 0 0 1 12.548-3.364l1.903 1.903h-3.183a.75.75 0 1 0 0 1.5h4.992a.75.75 0 0 0 .75-.75V4.356a.75.75 0 0 0-1.5 0v3.18l-1.9-1.9A9 9 0 0 0 3.306 9.67a.75.75 0 1 0 1.45.388Zm15.408 3.352a.75.75 0 0 0-.919.53 7.5 7.5 0 0 1-12.548 3.364l-1.902-1.903h3.183a.75.75 0 0 0 0-1.5H2.984a.75.75 0 0 0-.75.75v4.992a.75.75 0 0 0 1.5 0v-3.18l1.9 1.9a9 9 0 0 0 15.059-4.035.75.75 0 0 0-.53-.918Z"
+                    />
+                  </svg>
+                </button>
+              }
               <select [(ngModel)]="timerSeconds" name="timerPreset" class="timer-select">
                 @for (opt of timerPresets; track opt.value) {
                   <option [ngValue]="opt.value">{{ opt.label }}</option>
                 }
               </select>
-              <button type="button" class="btn-ghost btn-sm" (click)="startTimer()">Iniciar</button>
-              <button type="button" class="btn-ghost btn-sm" (click)="stopTimer()">Stop</button>
             </div>
-            <button type="button" class="btn-danger btn-sm" (click)="deleteRetro()">
-              Borrar retro
-            </button>
+          } @else if (timerLeft() !== null || r.timerPausedRemaining != null) {
+            <span class="timer">{{ formatTime(timerLeft() ?? r.timerPausedRemaining!) }}</span>
           }
         } @else if (r.status !== 'closed') {
           <button
@@ -112,61 +194,87 @@
     }
 
     @if (showInvite && !isSpectator()) {
-      <div class="card panel">
-        <h3>Enlaces de invitación</h3>
-        <div class="invite-row">
-          <span>Invitado (sin cuenta)</span>
-          <code>{{ inviteUrl('guest') }}</code>
-          <button
-            type="button"
-            class="btn-secondary btn-sm"
-            [class.copied]="copiedKind() === 'guest'"
-            (click)="copyInvite('guest')"
-          >
-            {{ copiedKind() === 'guest' ? 'Copiado' : 'Copiar' }}
-          </button>
-        </div>
-        <div class="invite-row">
-          <span>Miembro del equipo</span>
-          <code>{{ inviteUrl('member') }}</code>
-          <button
-            type="button"
-            class="btn-secondary btn-sm"
-            [class.copied]="copiedKind() === 'member'"
-            (click)="copyInvite('member')"
-          >
-            {{ copiedKind() === 'member' ? 'Copiado' : 'Copiar' }}
+      <div
+        class="join-modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invite-modal-title"
+        (click)="showInvite = false"
+      >
+        <div class="card join-modal invite-modal" (click)="$event.stopPropagation()">
+          <h2 id="invite-modal-title">Enlaces de invitación</h2>
+          <div class="invite-row">
+            <span>Invitado (sin cuenta)</span>
+            <code>{{ inviteUrl('guest') }}</code>
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              [class.copied]="copiedKind() === 'guest'"
+              (click)="copyInvite('guest')"
+            >
+              {{ copiedKind() === 'guest' ? 'Copiado' : 'Copiar' }}
+            </button>
+          </div>
+          <div class="invite-row">
+            <span>Miembro del equipo</span>
+            <code>{{ inviteUrl('member') }}</code>
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              [class.copied]="copiedKind() === 'member'"
+              (click)="copyInvite('member')"
+            >
+              {{ copiedKind() === 'member' ? 'Copiado' : 'Copiar' }}
+            </button>
+          </div>
+          <button type="button" class="btn-ghost btn-sm" (click)="showInvite = false">
+            Cerrar
           </button>
         </div>
       </div>
     }
 
     @if (showSettings && isFacilitator()) {
-      <div class="card panel settings">
-        <h3>Ajustes de facilitación</h3>
-        <div class="settings-grid">
-          <div class="field">
-            <label>Máx. comentarios</label>
-            <input type="number" [(ngModel)]="maxComments" name="maxComments" />
+      <div
+        class="join-modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        (click)="showSettings = false"
+      >
+        <div class="card join-modal settings-modal" (click)="$event.stopPropagation()">
+          <h2 id="settings-modal-title">Ajustes de facilitación</h2>
+          <div class="settings-grid">
+            <div class="field">
+              <label>Máx. comentarios</label>
+              <input type="number" [(ngModel)]="maxComments" name="maxComments" />
+            </div>
+            <div class="field">
+              <label>Votos por persona</label>
+              <input type="number" [(ngModel)]="votesPerParticipant" name="votesPP" />
+            </div>
+            <div class="field">
+              <label>Máx. votos / tarjeta</label>
+              <input type="number" [(ngModel)]="maxVotesPerCard" name="maxV" />
+            </div>
+            <div class="field">
+              <label>Duración del timer</label>
+              <select [(ngModel)]="timerSeconds" name="timerSec">
+                @for (opt of timerPresets; track opt.value) {
+                  <option [ngValue]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+            </div>
           </div>
-          <div class="field">
-            <label>Votos por persona</label>
-            <input type="number" [(ngModel)]="votesPerParticipant" name="votesPP" />
-          </div>
-          <div class="field">
-            <label>Máx. votos / tarjeta</label>
-            <input type="number" [(ngModel)]="maxVotesPerCard" name="maxV" />
-          </div>
-          <div class="field">
-            <label>Duración del timer</label>
-            <select [(ngModel)]="timerSeconds" name="timerSec">
-              @for (opt of timerPresets; track opt.value) {
-                <option [ngValue]="opt.value">{{ opt.label }}</option>
-              }
-            </select>
+          <div class="join-modal-actions row">
+            <button type="button" class="btn-ghost btn-sm" (click)="showSettings = false">
+              Cerrar
+            </button>
+            <button type="button" class="btn-primary btn-sm" (click)="saveSettings()">
+              Guardar
+            </button>
           </div>
         </div>
-        <button type="button" class="btn-primary btn-sm" (click)="saveSettings()">Guardar</button>
       </div>
     }
 
@@ -319,7 +427,9 @@
                           [class.stack-header]="member.id === card.id"
                           [class.stack-member]="member.id !== card.id"
                           [class.hidden-card]="member.hidden"
-                          [class.has-delete]="canDeleteCard(member)"
+                          [class.has-delete]="
+                            canDeleteCard(member) && editingCardId !== member.id
+                          "
                           [style.--stack-avatar-n]="
                             member.id === card.id
                               ? stackAuthorAvatars(card).length
@@ -374,12 +484,92 @@
                               context: { $implicit: member }
                             "
                           />
-                          <ng-container
-                            *ngTemplateOutlet="
-                              stickyView;
-                              context: { $implicit: member }
-                            "
-                          />
+                          @if (editingCardId === member.id) {
+                            <div class="card-edit" (click)="$event.stopPropagation()">
+                              <textarea
+                                #editTa
+                                autosizeTextarea
+                                [(ngModel)]="editDraft"
+                                [name]="'edit-' + member.id"
+                                rows="2"
+                                (paste)="onEditPaste($event)"
+                              ></textarea>
+                              <div class="composer-toolbar">
+                                <app-emoji-picker
+                                  (picked)="insertEmojiIntoEdit($event, editTa)"
+                                />
+                                <label class="btn-ghost btn-sm image-pick">
+                                  Imagen / GIF
+                                  <input
+                                    type="file"
+                                    hidden
+                                    [accept]="imageAccept"
+                                    (change)="onEditFile($event)"
+                                  />
+                                </label>
+                              </div>
+                              @if (editImagePreview || (editImageUrl && !editRemoveImage)) {
+                                <div class="media-preview">
+                                  <img
+                                    [src]="editImagePreview || editImageUrl"
+                                    alt="Vista previa"
+                                  />
+                                  <button
+                                    type="button"
+                                    class="btn-ghost btn-sm"
+                                    (click)="removeEditImage($event)"
+                                  >
+                                    Quitar
+                                  </button>
+                                </div>
+                              }
+                              @if (r.allowAnonymous) {
+                                <label class="anon">
+                                  <input
+                                    type="checkbox"
+                                    [(ngModel)]="editAnonymous"
+                                    [name]="'edit-anon-' + member.id"
+                                  />
+                                  Anónimo
+                                </label>
+                              }
+                              <div class="card-actions">
+                                <button
+                                  type="button"
+                                  class="btn-primary btn-sm"
+                                  (click)="saveEdit(member, $event)"
+                                  [disabled]="!canSaveEdit(member)"
+                                >
+                                  Guardar
+                                </button>
+                                <button
+                                  type="button"
+                                  class="btn-ghost btn-sm"
+                                  (click)="cancelEdit($event)"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          } @else {
+                            <ng-container
+                              *ngTemplateOutlet="
+                                stickyView;
+                                context: { $implicit: member }
+                              "
+                            />
+                            @if (canEditCard(member)) {
+                              <div class="card-actions">
+                                <button
+                                  type="button"
+                                  class="btn-ghost btn-sm"
+                                  (click)="startEdit(member, $event)"
+                                >
+                                  Editar
+                                </button>
+                              </div>
+                            }
+                          }
                           @if (member.id === card.id && (r.status === 'voting' || r.status === 'actions')) {
                             <ng-container
                               *ngTemplateOutlet="
@@ -615,13 +805,43 @@
       </div>
     }
 
-    @if (isFacilitator() && nextPhase() && r.status !== 'roti') {
-      <footer class="facilitator-bar">
-        <button type="button" class="btn-primary" (click)="advance()">
-          Siguiente fase →
-        </button>
-      </footer>
-    }
+    <footer class="retro-dock" aria-label="Controles de la retrospectiva">
+      <div class="retro-dock-slot start">
+        @if (isFacilitator() && prevPhase(); as prev) {
+          <button
+            type="button"
+            class="dock-phase"
+            [attr.aria-label]="'Fase previa: ' + phaseLabel(prev)"
+            (click)="goToPhase(prev)"
+          >
+            <span aria-hidden="true">←</span>
+            <span class="dock-phase-label">{{ phaseLabel(prev) }}</span>
+          </button>
+        }
+      </div>
+      <button
+        type="button"
+        class="dock-confetti"
+        title="Lanzar confeti"
+        aria-label="Lanzar confeti"
+        (click)="throwConfetti()"
+      >
+        🎉
+      </button>
+      <div class="retro-dock-slot end">
+        @if (isFacilitator() && dockNextPhase(); as next) {
+          <button
+            type="button"
+            class="dock-phase next"
+            [attr.aria-label]="'Siguiente fase: ' + phaseLabel(next)"
+            (click)="goToPhase(next)"
+          >
+            <span class="dock-phase-label">{{ phaseLabel(next) }}</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        }
+      </div>
+    </footer>
 
     @if (copyToast(); as msg) {
       <div class="copy-toast" role="status" aria-live="polite">{{ msg }}</div>

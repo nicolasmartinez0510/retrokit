@@ -171,6 +171,14 @@ export class TimerDto {
   seconds?: number;
 }
 
+export class TimerAddDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3600)
+  seconds?: number;
+}
+
 export class RotiDto {
   @IsInt()
   @Min(1)

@@ -30,6 +30,7 @@ import {
   JoinRetroDto,
   RotiDto,
   SetCommentsReadyDto,
+  TimerAddDto,
   TimerDto,
   UpdateCardDto,
   UpdateSettingsDto,
@@ -211,6 +212,28 @@ export class RetrosController {
     @Body() dto: TimerDto,
   ) {
     return this.retros.startTimer(user, id, dto);
+  }
+
+  @Post(':id/timer/pause')
+  @UseGuards(JwtAuthGuard)
+  pauseTimer(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.retros.pauseTimer(user, id);
+  }
+
+  @Post(':id/timer/resume')
+  @UseGuards(JwtAuthGuard)
+  resumeTimer(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.retros.resumeTimer(user, id);
+  }
+
+  @Post(':id/timer/add')
+  @UseGuards(JwtAuthGuard)
+  addTimerSeconds(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: TimerAddDto,
+  ) {
+    return this.retros.addTimerSeconds(user, id, dto);
   }
 
   @Post(':id/timer/stop')

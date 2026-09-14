@@ -434,8 +434,6 @@ const COLUMN_SYMBOLS = [
       width: 40px;
       height: 40px;
       object-fit: contain;
-      border-radius: 8px;
-      background: var(--color-bg-muted);
     }
     .col-logo.sm { width: 28px; height: 28px; }
     .icon-fallback {

@@ -244,6 +244,7 @@ export interface RetroBoard {
   allowAnonymous: boolean;
   timerSeconds: number | null;
   timerEndsAt: string | null;
+  timerPausedRemaining?: number | null;
   backgroundColor?: string | null;
   backgroundImageUrl?: string | null;
   createdAt: string;

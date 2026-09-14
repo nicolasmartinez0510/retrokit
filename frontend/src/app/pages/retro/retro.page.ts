@@ -18,6 +18,7 @@ import { httpErrorMessage } from '../../core/http-error';
 import {
   Card,
   Participant,
+  PHASE_LABELS,
   PHASES,
   RetroBoard,
   RetroStatus,
@@ -27,6 +28,11 @@ import {
   prefersReducedMotion,
 } from '../../core/confetti';
 import { SocketService } from '../../core/socket.service';
+import {
+  armTimerChime,
+  disarmTimerChime,
+  playTimerChime,
+} from '../../core/timer-chime';
 import { ToastService } from '../../core/toast.service';
 import { AutosizeTextareaDirective } from '../../shared/autosize-textarea.directive';
 import { EmojiPickerComponent } from '../../shared/emoji-picker.component';
@@ -173,6 +179,32 @@ export class RetroPage implements OnInit, OnDestroy {
     }
     return PHASES[idx + 1].key;
   });
+  prevPhase = computed(() => {
+    const status = this.retro()?.status;
+    if (!status) return null;
+    const idx = PHASES.findIndex((p) => p.key === status);
+    if (idx <= 0) return null;
+    return PHASES[idx - 1].key;
+  });
+  dockNextPhase = computed(() => {
+    const next = this.nextPhase();
+    if (!next || next === 'closed') return null;
+    return next;
+  });
+
+  phaseLabel(status: RetroStatus) {
+    return PHASE_LABELS[status];
+  }
+
+  toggleInvite() {
+    this.showInvite = !this.showInvite;
+    if (this.showInvite) this.showSettings = false;
+  }
+
+  toggleSettings() {
+    this.showSettings = !this.showSettings;
+    if (this.showSettings) this.showInvite = false;
+  }
 
   isParticipant = computed(() => !!this.retro()?.me?.participantId);
 
@@ -185,6 +217,24 @@ export class RetroPage implements OnInit, OnDestroy {
     () =>
       !!this.retro()?.me?.isFacilitator && this.isParticipant(),
   );
+
+  isTimerRunning = computed(() => {
+    const left = this.timerLeft();
+    return left !== null && left > 0 && !!this.retro()?.timerEndsAt;
+  });
+
+  isTimerPaused = computed(() => {
+    const remaining = this.retro()?.timerPausedRemaining;
+    return remaining != null && remaining > 0 && !this.isTimerRunning();
+  });
+
+  timerDisplaySeconds() {
+    const left = this.timerLeft();
+    if (left !== null) return left;
+    const paused = this.retro()?.timerPausedRemaining;
+    if (paused != null) return paused;
+    return this.timerSeconds;
+  }
 
   canComment = computed(() => {
     const r = this.retro();
@@ -219,6 +269,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     if (this.timerHandle) clearInterval(this.timerHandle);
+    disarmTimerChime();
     if (this.copyToastTimer) clearTimeout(this.copyToastTimer);
     for (const event of this.boardEvents) {
       this.sockets.off(event, this.refreshBoard);
@@ -493,7 +544,7 @@ export class RetroPage implements OnInit, OnDestroy {
     return (
       r?.status === 'grouping' &&
       this.isParticipant() &&
-      this.editingCardId !== card.id
+      !this.editingCardId
     );
   }
 
@@ -508,7 +559,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   onBoardCardClick(card: BoardCard, event?: Event) {
     const r = this.retro();
-    if (!r || this.editingCardId === card.id) return;
+    if (!r || this.editingCardId) return;
     if (this.isGroupingSelect(card)) {
       this.selectForGroup(card.id);
       return;
@@ -530,10 +581,23 @@ export class RetroPage implements OnInit, OnDestroy {
     event.stopPropagation();
   }
 
+  @HostListener('pointerdown')
+  armChimeOnGesture() {
+    if (this.isTimerRunning() || this.isTimerPaused()) armTimerChime();
+  }
+
   @HostListener('document:keydown', ['$event'])
   onGroupingEscape(event: KeyboardEvent) {
     if (event.key !== 'Escape') return;
-    if (this.showJoinModal() || this.showSettings || this.showInvite) return;
+    if (this.showJoinModal()) return;
+    if (this.showSettings) {
+      this.showSettings = false;
+      return;
+    }
+    if (this.showInvite) {
+      this.showInvite = false;
+      return;
+    }
     if (this.editingCardId) return;
     if (this.selectedCardId()) this.selectedCardId.set(null);
   }
@@ -666,7 +730,7 @@ export class RetroPage implements OnInit, OnDestroy {
     const r = this.retro();
     if (!r) return false;
     if (r.status !== 'comments' && r.status !== 'grouping') return false;
-    if (card.hidden || card.groupId || card.isGroup) return false;
+    if (card.hidden || card.isGroup) return false;
     return this.isOwnCard(card);
   }
 
@@ -934,25 +998,6 @@ export class RetroPage implements OnInit, OnDestroy {
     });
   }
 
-  deleteRetro() {
-    const r = this.retro();
-    if (!r || !this.isFacilitator()) return;
-    if (
-      !confirm(
-        `¿Borrar la retrospectiva “${r.title}”? Esta acción no se puede deshacer.`,
-      )
-    ) {
-      return;
-    }
-    this.api.deleteRetro(r.id).subscribe({
-      next: () => {
-        void this.router.navigate(['/teams', r.teamId]);
-      },
-      error: (e) =>
-        this.error.set(e?.error?.message || 'No se pudo borrar la retrospectiva'),
-    });
-  }
-
   saveSettings() {
     const r = this.retro();
     if (!r) return;
@@ -972,12 +1017,45 @@ export class RetroPage implements OnInit, OnDestroy {
       });
   }
 
+  playTimer() {
+    armTimerChime();
+    if (this.isTimerPaused()) {
+      this.resumeTimer();
+      return;
+    }
+    this.startTimer();
+  }
+
   startTimer() {
     const r = this.retro();
     if (!r) return;
+    armTimerChime();
     this.api.startTimer(r.id, this.timerSeconds).subscribe({
       next: () => this.reload(r.id),
     });
+  }
+
+  pauseTimer() {
+    const r = this.retro();
+    if (!r) return;
+    this.api.pauseTimer(r.id).subscribe({ next: () => this.reload(r.id) });
+  }
+
+  resumeTimer() {
+    const r = this.retro();
+    if (!r) return;
+    armTimerChime();
+    this.api.resumeTimer(r.id).subscribe({ next: () => this.reload(r.id) });
+  }
+
+  addTimerMinute() {
+    const r = this.retro();
+    if (!r) return;
+    this.api.addTimerSeconds(r.id, 60).subscribe({ next: () => this.reload(r.id) });
+  }
+
+  resetTimer() {
+    this.startTimer();
   }
 
   stopTimer() {
@@ -1037,19 +1115,34 @@ export class RetroPage implements OnInit, OnDestroy {
 
   private syncTimer(endsAt: string | null) {
     if (this.timerHandle) clearInterval(this.timerHandle);
+    this.timerHandle = null;
     if (!endsAt) {
       this.timerLeft.set(null);
+      disarmTimerChime();
       return;
     }
+    this.timerLeft.set(null);
     const tick = () => {
       const left = Math.max(
         0,
         Math.floor((new Date(endsAt).getTime() - Date.now()) / 1000),
       );
+      const prev = this.timerLeft();
       this.timerLeft.set(left);
+      if (left === 0) {
+        if (prev !== null && prev > 0) playTimerChime();
+        disarmTimerChime();
+        if (this.timerHandle) {
+          clearInterval(this.timerHandle);
+          this.timerHandle = null;
+        }
+      }
     };
     tick();
-    this.timerHandle = setInterval(tick, 1000);
+    if ((this.timerLeft() ?? 0) > 0) {
+      armTimerChime();
+      this.timerHandle = setInterval(tick, 1000);
+    }
   }
 
   formatTime(sec: number) {

@@ -1,0 +1,39 @@
+---
+description: Rebuild o restart de contenedores Docker sin esperar a que el usuario lo pida
+alwaysApply: true
+---
+
+# Docker: rebuild y restart automáticos
+
+La app que se usa para probar es Docker Compose (`web` + `api` + `db`). **No hay bind mounts del código** en `web` ni `api`: un cambio en el repo no se ve hasta rebuild.
+
+**No esperes a que el usuario pida rebuild.** Al terminar un cambio que afecte lo que corre en contenedores, rebuild/restart vos y avisá la URL.
+
+## Cuándo
+
+- Cambio en `frontend/` (UI, estilos, assets) → rebuild `web`
+- Cambio en `backend/` (API, Prisma, sockets) → rebuild `api`
+- Ambos → rebuild `web` y `api`
+- Solo `db` no hace falta por cambios de app
+- Migraciones Prisma: van en el entrypoint de `api`; con rebuild/recreate de `api` alcanzan
+
+## Cómo
+
+Desde la raíz del repo (`HOST_PORT` está en `.env`, hoy **8090**):
+
+```bash
+docker compose up -d --build web
+# o
+docker compose up -d --build api
+# o
+docker compose up -d --build web api
+```
+
+Usá permisos de Docker (`all` si el sandbox lo bloquea). Esperá a que los contenedores queden `Started`/`Healthy`.
+
+Al terminar: recargar **http://localhost:${HOST_PORT}** (hard refresh si el navegador cachea el JS).
+
+## No aplica
+
+- Planes, rules, docs que no se sirven desde los contenedores
+- Si Compose no está levantado, no lo arranques entero salvo que el cambio no se pueda verificar de otro modo

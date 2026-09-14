@@ -112,6 +112,7 @@ model Retrospective {
   allowAnonymous            Boolean        @default(true)
   timerSeconds              Int?
   timerEndsAt               DateTime?
+  timerPausedRemaining      Int?
   backgroundColor           String?
   backgroundImageUrl        String?
   createdAt                 DateTime       @default(now())

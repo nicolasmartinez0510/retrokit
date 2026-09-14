@@ -254,6 +254,18 @@ export class ApiService {
     return this.http.post(`${this.base}/retros/${id}/timer/start`, { seconds });
   }
 
+  pauseTimer(id: string) {
+    return this.http.post(`${this.base}/retros/${id}/timer/pause`, {});
+  }
+
+  resumeTimer(id: string) {
+    return this.http.post(`${this.base}/retros/${id}/timer/resume`, {});
+  }
+
+  addTimerSeconds(id: string, seconds = 60) {
+    return this.http.post(`${this.base}/retros/${id}/timer/add`, { seconds });
+  }
+
   stopTimer(id: string) {
     return this.http.post(`${this.base}/retros/${id}/timer/stop`, {});
   }
