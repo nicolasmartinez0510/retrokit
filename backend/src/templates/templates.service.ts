@@ -5,7 +5,10 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
-import { UploadsService } from '../uploads/uploads.service';
+import {
+  isStagingPublicUrl,
+  UploadsService,
+} from '../uploads/uploads.service';
 import {
   CreateTemplateDto,
   TemplateColumnInputDto,
@@ -41,8 +44,9 @@ export class TemplatesService {
   async create(userId: string, dto: CreateTemplateDto) {
     await this.teams.assertAnyFacilitator(userId);
     this.assertValidColumns(dto.columns);
+    await this.assertStagingAssets(userId, dto);
 
-    return this.prisma.template.create({
+    const created = await this.prisma.template.create({
       data: {
         name: dto.name.trim(),
         description: dto.description?.trim() || null,
@@ -59,6 +63,8 @@ export class TemplatesService {
       },
       include: { columns: columnInclude },
     });
+
+    return this.applyStagingAssets(userId, created.id, dto);
   }
 
   async update(userId: string, id: string, dto: UpdateTemplateDto) {
@@ -68,10 +74,11 @@ export class TemplatesService {
     if (dto.columns) {
       this.assertValidColumns(dto.columns);
     }
+    await this.assertStagingAssets(userId, dto);
 
     const removedLogoUrls: string[] = [];
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await tx.template.update({
         where: { id },
         data: {
@@ -146,7 +153,7 @@ export class TemplatesService {
       await this.deleteFileIfUnreferenced(url);
     }
 
-    return updated;
+    return this.applyStagingAssets(userId, id, dto, existing.backgroundImageUrl);
   }
 
   async remove(userId: string, id: string) {
@@ -227,6 +234,110 @@ export class TemplatesService {
       data: { logoUrl: null },
     });
     await this.deleteFileIfUnreferenced(column.logoUrl);
+    return this.getOne(templateId);
+  }
+
+  async saveStaging(
+    userId: string,
+    sessionId: string,
+    file: Express.Multer.File,
+    kind: 'background' | 'logo',
+  ) {
+    await this.teams.assertAnyFacilitator(userId);
+    const url = await this.uploads.saveStaging(userId, sessionId, file, kind);
+    return { url };
+  }
+
+  async deleteStagingFile(userId: string, url: string) {
+    await this.teams.assertAnyFacilitator(userId);
+    if (!url) {
+      throw new BadRequestException('La imagen temporal no es válida');
+    }
+    await this.uploads.deleteStaging(userId, url);
+    return { deleted: true };
+  }
+
+  async deleteStagingSession(userId: string, sessionId: string) {
+    await this.teams.assertAnyFacilitator(userId);
+    await this.uploads.deleteStagingSession(userId, sessionId);
+    return { deleted: true };
+  }
+
+  private async assertStagingAssets(
+    userId: string,
+    dto: {
+      backgroundImageUrl?: string | null;
+      columns?: TemplateColumnInputDto[];
+    },
+  ) {
+    if (isStagingPublicUrl(dto.backgroundImageUrl)) {
+      await this.uploads.assertStagingFileExists(userId, dto.backgroundImageUrl);
+    } else if (dto.backgroundImageUrl) {
+      throw new BadRequestException('La imagen temporal no es válida');
+    }
+    for (const col of dto.columns ?? []) {
+      if (!col.logoUrl) continue;
+      if (isStagingPublicUrl(col.logoUrl)) {
+        await this.uploads.assertStagingFileExists(userId, col.logoUrl);
+      }
+    }
+  }
+
+  private async applyStagingAssets(
+    userId: string,
+    templateId: string,
+    dto: {
+      backgroundImageUrl?: string | null;
+      columns?: TemplateColumnInputDto[];
+    },
+    previousBackgroundUrl?: string | null,
+  ) {
+    if (isStagingPublicUrl(dto.backgroundImageUrl)) {
+      const url = await this.uploads.promoteStaging(
+        userId,
+        dto.backgroundImageUrl,
+        templateId,
+        'bg',
+      );
+      await this.prisma.template.update({
+        where: { id: templateId },
+        data: { backgroundImageUrl: url },
+      });
+      if (previousBackgroundUrl) {
+        await this.deleteFileIfUnreferenced(previousBackgroundUrl);
+      }
+    }
+
+    if (dto.columns?.length) {
+      const persisted = await this.prisma.templateColumn.findMany({
+        where: { templateId },
+        orderBy: { position: 'asc' },
+      });
+      for (let i = 0; i < dto.columns.length; i++) {
+        const incoming = dto.columns[i];
+        if (!isStagingPublicUrl(incoming.logoUrl)) continue;
+        const column =
+          (incoming.id
+            ? persisted.find((c) => c.id === incoming.id)
+            : undefined) ??
+          persisted.find((c) => c.position === (incoming.position ?? i)) ??
+          persisted[i];
+        if (!column) {
+          throw new BadRequestException('Columna no encontrada');
+        }
+        const url = await this.uploads.promoteStaging(
+          userId,
+          incoming.logoUrl,
+          templateId,
+          `col-${column.id}`,
+        );
+        await this.prisma.templateColumn.update({
+          where: { id: column.id },
+          data: { logoUrl: url, icon: null },
+        });
+      }
+    }
+
     return this.getOne(templateId);
   }
 

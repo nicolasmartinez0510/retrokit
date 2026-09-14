@@ -118,6 +118,39 @@ export class ApiService {
     );
   }
 
+  uploadStagingBackground(sessionId: string, file: File) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('sessionId', sessionId);
+    return this.http.post<{ url: string }>(
+      `${this.base}/templates/staging/background`,
+      form,
+    );
+  }
+
+  uploadStagingLogo(sessionId: string, file: File) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('sessionId', sessionId);
+    return this.http.post<{ url: string }>(
+      `${this.base}/templates/staging/logo`,
+      form,
+    );
+  }
+
+  deleteStaging(url: string) {
+    return this.http.delete<{ deleted: boolean }>(
+      `${this.base}/templates/staging`,
+      { params: { url } },
+    );
+  }
+
+  deleteStagingSession(sessionId: string) {
+    return this.http.delete<{ deleted: boolean }>(
+      `${this.base}/templates/staging/sessions/${sessionId}`,
+    );
+  }
+
   // Retros
   createRetro(payload: CreateRetroPayload) {
     return this.http.post<RetroBoard & { openActionsReminder?: number }>(

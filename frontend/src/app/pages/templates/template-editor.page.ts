@@ -1,11 +1,19 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { httpErrorMessage } from '../../core/http-error';
-import { isSvgFile, rejectImageFile } from '../../core/image-file';
+import {
+  isBlobUrl,
+  isStagingUrl,
+  isSvgFile,
+  rejectImageFile,
+} from '../../core/image-file';
+import { Subscription } from 'rxjs';
 import { Template, TemplateColumnInput } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { environment } from '../../../environments/environment';
 import { EmojiPickerComponent } from '../../shared/emoji-picker.component';
 import {
   CropKind,
@@ -101,9 +109,6 @@ const COLUMN_SYMBOLS = [
         </div>
 
         <h2>Fondo del tablero</h2>
-        @if (isNew()) {
-          <p class="hint">Guardá la plantilla para subir una imagen de fondo.</p>
-        }
         <div class="bg-row">
           <div class="field">
             <label>Color</label>
@@ -131,13 +136,16 @@ const COLUMN_SYMBOLS = [
           <div class="field">
             <label>Imagen</label>
             <div class="file-row">
-              <label class="btn-secondary btn-sm" [class.disabled]="isNew()">
-                Subir imagen
+              <label
+                class="btn-secondary btn-sm"
+                [class.busy]="uploadingBackground()"
+              >
+                {{ uploadingBackground() ? 'Subiendo…' : 'Subir imagen' }}
                 <input
                   type="file"
                   hidden
                   [accept]="imageAccept"
-                  [disabled]="isNew()"
+                  [disabled]="uploadingBackground()"
                   (change)="onBackgroundFile($event)"
                 />
               </label>
@@ -167,7 +175,10 @@ const COLUMN_SYMBOLS = [
           @for (col of columns(); track col.key; let i = $index) {
             <div class="column-row card">
               <div class="symbol-block">
-                <div class="symbol-preview">
+                <div
+                  class="symbol-preview"
+                  [class.uploading]="isLogoUploading(col.key)"
+                >
                   @if (col.logoUrl) {
                     <img class="col-logo" [src]="col.logoUrl" alt="" />
                   } @else {
@@ -182,27 +193,25 @@ const COLUMN_SYMBOLS = [
                     [prepend]="columnSymbols"
                     (picked)="pickEmoji(col, $event)"
                   />
-                  @if (col.id) {
-                    <label
-                      class="btn-ghost btn-sm icon-btn"
-                      title="Subir imagen"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path
-                          d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
-                        />
-                      </svg>
-                      <span class="sr-only">Subir imagen</span>
-                      <input
-                        type="file"
-                        hidden
-                        [accept]="imageAccept"
-                        (change)="onLogoFile($event, col)"
+                  <label
+                    class="btn-ghost btn-sm icon-btn"
+                    [class.busy]="isLogoUploading(col.key)"
+                    [title]="isLogoUploading(col.key) ? 'Subiendo…' : 'Subir imagen'"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
                       />
-                    </label>
-                  } @else {
-                    <span class="hint tiny">Guardá para subir imagen</span>
-                  }
+                    </svg>
+                    <span class="sr-only">Subir imagen</span>
+                    <input
+                      type="file"
+                      hidden
+                      [accept]="imageAccept"
+                      [disabled]="isLogoUploading(col.key)"
+                      (change)="onLogoFile($event, col)"
+                    />
+                  </label>
                   @if (col.logoUrl || col.icon) {
                     <button
                       type="button"
@@ -272,10 +281,10 @@ const COLUMN_SYMBOLS = [
           class="preview"
           [class.has-theme]="!!backgroundColor || !!backgroundImageUrl"
           [style.background-color]="backgroundColor || null"
-          [style.background-image]="
-            backgroundImageUrl ? 'url(' + backgroundImageUrl + ')' : null
-          "
         >
+          @if (backgroundImageUrl) {
+            <img class="preview-bg" [src]="backgroundImageUrl" alt="" />
+          }
           <h3>Vista previa</h3>
           <div class="preview-board">
             @for (col of columns(); track col.key) {
@@ -297,8 +306,18 @@ const COLUMN_SYMBOLS = [
         </section>
 
         <div class="form-actions">
-          <button class="btn-primary" type="submit" [disabled]="saving()">
-            {{ saving() ? 'Guardando…' : 'Guardar' }}
+          <button
+            class="btn-primary"
+            type="submit"
+            [disabled]="saving() || busyUploading()"
+          >
+            {{
+              saving()
+                ? 'Guardando…'
+                : busyUploading()
+                  ? 'Subiendo imágenes…'
+                  : 'Guardar'
+            }}
           </button>
         </div>
       </form>
@@ -334,7 +353,6 @@ const COLUMN_SYMBOLS = [
       font-size: 0.85rem;
       color: var(--color-text-muted);
     }
-    .hint.tiny { font-size: 0.75rem; }
     .bg-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -345,6 +363,14 @@ const COLUMN_SYMBOLS = [
       flex-wrap: wrap;
       gap: 0.45rem;
       align-items: center;
+    }
+    .file-row label.busy,
+    .icon-btn.busy {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+    .symbol-preview.uploading {
+      opacity: 0.65;
     }
     .icon-btn {
       width: 2rem;
@@ -382,7 +408,6 @@ const COLUMN_SYMBOLS = [
       background: transparent;
       cursor: pointer;
     }
-    label.disabled { opacity: 0.5; pointer-events: none; }
     .columns-header {
       display: flex;
       justify-content: space-between;
@@ -434,12 +459,26 @@ const COLUMN_SYMBOLS = [
       justify-content: flex-end;
     }
     .preview {
+      position: relative;
+      isolation: isolate;
       background: var(--color-sky-soft);
-      background-size: cover;
-      background-position: center;
       border-radius: var(--radius-sm);
       padding: 0.85rem 1rem;
+      overflow: hidden;
       h3 { font-size: 0.9rem; margin-bottom: 0.5rem; }
+    }
+    .preview-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .preview > :not(.preview-bg) {
+      position: relative;
+      z-index: 1;
     }
     .preview.has-theme .preview-col {
       background: color-mix(in srgb, var(--color-bg) 82%, transparent);
@@ -473,8 +512,9 @@ const COLUMN_SYMBOLS = [
     }
   `,
 })
-export class TemplateEditorPage implements OnInit {
+export class TemplateEditorPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly toast = inject(ToastService);
@@ -493,10 +533,19 @@ export class TemplateEditorPage implements OnInit {
   backgroundImageUrl: string | null = null;
   columns = signal<EditableColumn[]>([]);
   saving = signal(false);
+  uploadingBackground = signal(false);
+  uploadingLogoKeys = signal<ReadonlySet<string>>(new Set());
   crop = signal<{ kind: CropKind; file: File; columnKey?: string } | null>(
     null,
   );
   private keySeq = 0;
+  private sessionId = crypto.randomUUID();
+  private sessionDiscarded = false;
+  private blobUrls = new Set<string>();
+  private backgroundHeld: string | null = null;
+  private bgUpload?: Subscription;
+  private logoUploads = new Map<string, Subscription>();
+  private logoHeld = new Map<string, string | null>();
 
   colorPickerValue() {
     return this.backgroundColor || '#e3f2fd';
@@ -522,6 +571,18 @@ export class TemplateEditorPage implements OnInit {
     });
   }
 
+  ngOnDestroy() {
+    this.bgUpload?.unsubscribe();
+    for (const sub of this.logoUploads.values()) sub.unsubscribe();
+    this.discardStagingSession();
+    this.revokeAllBlobs();
+  }
+
+  @HostListener('window:pagehide')
+  onPageHide() {
+    this.discardStagingSession();
+  }
+
   addColumn() {
     if (this.columns().length >= 8) {
       this.toast.error('Máximo 8 columnas por plantilla');
@@ -540,6 +601,14 @@ export class TemplateEditorPage implements OnInit {
 
   removeColumn(index: number) {
     if (this.columns().length <= 1) return;
+    const removed = this.columns()[index];
+    this.logoUploads.get(removed.key)?.unsubscribe();
+    this.logoUploads.delete(removed.key);
+    this.setLogoUploading(removed.key, false);
+    this.revokeBlob(removed.logoUrl);
+    this.forgetStaging(removed.logoUrl);
+    this.forgetStaging(this.logoHeld.get(removed.key));
+    this.logoHeld.delete(removed.key);
     this.columns.set(this.columns().filter((_, i) => i !== index));
   }
 
@@ -569,6 +638,10 @@ export class TemplateEditorPage implements OnInit {
       return;
     }
 
+    if (this.busyUploading()) {
+      this.toast.error('Esperá a que terminen de subir las imágenes');
+      return;
+    }
     this.saving.set(true);
     const req = this.isNew()
       ? this.api.createTemplate(this.payload())
@@ -577,11 +650,14 @@ export class TemplateEditorPage implements OnInit {
     req.subscribe({
       next: (tpl) => {
         this.saving.set(false);
+        this.discardStagingSession();
         if (this.isNew()) {
-          this.toast.ok('Plantilla creada. Ya podés subir fondo y logos.');
+          this.toast.ok('Plantilla creada');
           void this.router.navigate(['/templates', tpl.id], { replaceUrl: true });
           return;
         }
+        this.sessionId = crypto.randomUUID();
+        this.sessionDiscarded = false;
         this.applyTemplate(tpl);
         this.toast.ok('Plantilla guardada');
       },
@@ -593,6 +669,7 @@ export class TemplateEditorPage implements OnInit {
   }
 
   pickEmoji(col: EditableColumn, emoji: string) {
+    this.cancelLogoUpload(col.key, { forget: true });
     col.icon = emoji;
     col.logoUrl = null;
     this.columns.set([...this.columns()]);
@@ -604,10 +681,15 @@ export class TemplateEditorPage implements OnInit {
   }
 
   clearSymbol(col: EditableColumn) {
+    const held = this.logoHeld.get(col.key) ?? col.logoUrl;
+    this.cancelLogoUpload(col.key, { forget: true });
     col.icon = '';
-    const hadLogo = !!col.logoUrl;
     col.logoUrl = null;
     this.columns.set([...this.columns()]);
+    if (isStagingUrl(held) || isBlobUrl(held) || !held) {
+      if (isStagingUrl(held)) this.forgetStaging(held);
+      return;
+    }
     if (!this.templateId || !col.id) return;
     const persist = () => {
       this.api.updateTemplate(this.templateId!, this.payload()).subscribe({
@@ -615,19 +697,15 @@ export class TemplateEditorPage implements OnInit {
         error: (e) => this.fail(e, 'No se pudo quitar el símbolo'),
       });
     };
-    if (hadLogo) {
-      this.api.deleteColumnLogo(this.templateId, col.id).subscribe({
-        next: persist,
-        error: (e) => this.fail(e, 'No se pudo quitar el logo'),
-      });
-      return;
-    }
-    persist();
+    this.api.deleteColumnLogo(this.templateId, col.id).subscribe({
+      next: persist,
+      error: (e) => this.fail(e, 'No se pudo quitar el logo'),
+    });
   }
 
   onBackgroundFile(ev: Event) {
     const file = this.takeFile(ev);
-    if (!file || !this.templateId) return;
+    if (!file) return;
     const reject = rejectImageFile(file, 'background');
     if (reject) {
       this.toast.error(reject);
@@ -642,7 +720,7 @@ export class TemplateEditorPage implements OnInit {
 
   onLogoFile(ev: Event, col: EditableColumn) {
     const file = this.takeFile(ev);
-    if (!file || !this.templateId || !col.id) return;
+    if (!file) return;
     const reject = rejectImageFile(file, 'logo');
     if (reject) {
       this.toast.error(reject);
@@ -667,7 +745,21 @@ export class TemplateEditorPage implements OnInit {
   }
 
   clearBackground() {
-    if (!this.templateId) return;
+    this.bgUpload?.unsubscribe();
+    this.bgUpload = undefined;
+    this.uploadingBackground.set(false);
+    const current = this.backgroundImageUrl;
+    const held = this.backgroundHeld;
+    this.backgroundHeld = null;
+    this.revokeBlob(current);
+    this.backgroundImageUrl = null;
+    const previous = isBlobUrl(held) ? null : held;
+    if (isStagingUrl(current) || isStagingUrl(previous) || !this.templateId) {
+      this.forgetStaging(current);
+      this.forgetStaging(previous);
+      this.toast.ok('Fondo quitado');
+      return;
+    }
     this.api.deleteTemplateBackground(this.templateId).subscribe({
       next: (tpl) => {
         this.applyTemplate(tpl);
@@ -677,27 +769,116 @@ export class TemplateEditorPage implements OnInit {
     });
   }
 
+  busyUploading() {
+    return this.uploadingBackground() || this.uploadingLogoKeys().size > 0;
+  }
+
+  isLogoUploading(key: string) {
+    return this.uploadingLogoKeys().has(key);
+  }
+
   private uploadBackground(file: File) {
-    if (!this.templateId) return;
-    this.api.uploadTemplateBackground(this.templateId, file).subscribe({
-      next: (tpl) => {
-        this.applyTemplate(tpl);
-        this.toast.ok('Fondo actualizado');
-      },
-      error: (e) => this.fail(e, 'No se pudo subir el fondo'),
-    });
+    this.bgUpload?.unsubscribe();
+    const current = this.backgroundImageUrl;
+    if (!isBlobUrl(current)) this.backgroundHeld = current;
+    this.revokeBlob(current);
+    const local = this.previewUrl(file);
+    this.backgroundImageUrl = local;
+    this.uploadingBackground.set(true);
+
+    const onOk = (urlOrTpl: string | Template) => {
+      this.uploadingBackground.set(false);
+      this.bgUpload = undefined;
+      this.revokeBlob(local);
+      if (typeof urlOrTpl === 'string') {
+        this.forgetStaging(this.backgroundHeld);
+        this.backgroundHeld = null;
+        this.backgroundImageUrl = urlOrTpl;
+      } else {
+        this.backgroundHeld = null;
+        this.applyTemplate(urlOrTpl);
+      }
+      this.toast.ok('Fondo actualizado');
+    };
+    const onErr = (e: unknown) => {
+      this.uploadingBackground.set(false);
+      this.bgUpload = undefined;
+      this.revokeBlob(local);
+      this.backgroundImageUrl = isBlobUrl(this.backgroundHeld)
+        ? null
+        : this.backgroundHeld;
+      this.backgroundHeld = null;
+      this.fail(e, 'No se pudo subir el fondo');
+    };
+
+    this.bgUpload = this.templateId
+      ? this.api.uploadTemplateBackground(this.templateId, file).subscribe({
+          next: (tpl) => onOk(tpl),
+          error: onErr,
+        })
+      : this.api.uploadStagingBackground(this.sessionId, file).subscribe({
+          next: ({ url }) => onOk(url),
+          error: onErr,
+        });
   }
 
   private uploadLogo(file: File, columnKey: string) {
     const col = this.columns().find((c) => c.key === columnKey);
-    if (!this.templateId || !col?.id) return;
-    this.api.uploadColumnLogo(this.templateId, col.id, file).subscribe({
-      next: (tpl) => {
-        this.applyTemplate(tpl);
-        this.toast.ok('Logo actualizado');
-      },
-      error: (e) => this.fail(e, 'No se pudo subir el logo'),
-    });
+    if (!col) return;
+    this.logoUploads.get(columnKey)?.unsubscribe();
+    const current = col.logoUrl;
+    if (!isBlobUrl(current)) this.logoHeld.set(columnKey, current ?? null);
+    this.revokeBlob(current);
+    const local = this.previewUrl(file);
+    col.icon = '';
+    col.logoUrl = local;
+    this.columns.set([...this.columns()]);
+    this.setLogoUploading(columnKey, true);
+
+    const onOk = (urlOrTpl: string | Template) => {
+      this.logoUploads.delete(columnKey);
+      this.setLogoUploading(columnKey, false);
+      this.revokeBlob(local);
+      const held = this.logoHeld.get(columnKey);
+      this.logoHeld.delete(columnKey);
+      if (typeof urlOrTpl === 'string') {
+        this.forgetStaging(held);
+        const live = this.columns().find((c) => c.key === columnKey);
+        if (live) {
+          live.icon = '';
+          live.logoUrl = urlOrTpl;
+          this.columns.set([...this.columns()]);
+        }
+      } else {
+        this.applyTemplate(urlOrTpl);
+      }
+      this.toast.ok('Logo actualizado');
+    };
+    const onErr = (e: unknown) => {
+      this.logoUploads.delete(columnKey);
+      this.setLogoUploading(columnKey, false);
+      this.revokeBlob(local);
+      const held = this.logoHeld.get(columnKey);
+      this.logoHeld.delete(columnKey);
+      const live = this.columns().find((c) => c.key === columnKey);
+      if (live) {
+        live.logoUrl = isBlobUrl(held) ? null : (held ?? null);
+        this.columns.set([...this.columns()]);
+      }
+      this.fail(e, 'No se pudo subir el logo');
+    };
+
+    const sub =
+      this.templateId && col.id
+        ? this.api.uploadColumnLogo(this.templateId, col.id, file).subscribe({
+            next: (tpl) => onOk(tpl),
+            error: onErr,
+          })
+        : this.api.uploadStagingLogo(this.sessionId, file).subscribe({
+            next: ({ url }) => onOk(url),
+            error: onErr,
+          });
+    this.logoUploads.set(columnKey, sub);
   }
 
   private payload() {
@@ -708,12 +889,16 @@ export class TemplateEditorPage implements OnInit {
       votesPerParticipant: this.votesPerParticipant,
       maxVotesPerCard: this.maxVotesPerCard,
       backgroundColor: this.backgroundColor.trim() || null,
+      ...(isStagingUrl(this.backgroundImageUrl)
+        ? { backgroundImageUrl: this.backgroundImageUrl }
+        : {}),
       columns: this.columns().map((c, i) => ({
         ...(c.id ? { id: c.id } : {}),
         title: c.title.trim(),
         description: c.description?.trim() || null,
         icon: c.logoUrl ? null : c.icon?.trim() || null,
         position: i,
+        ...(isStagingUrl(c.logoUrl) ? { logoUrl: c.logoUrl } : {}),
       })),
     };
   }
@@ -729,7 +914,84 @@ export class TemplateEditorPage implements OnInit {
     this.toast.error(httpErrorMessage(e, fallback));
   }
 
+  private forgetStaging(url: string | null | undefined) {
+    if (!isStagingUrl(url)) return;
+    this.api.deleteStaging(url).subscribe({ error: () => undefined });
+  }
+
+  private previewUrl(file: File) {
+    const url = URL.createObjectURL(file);
+    this.blobUrls.add(url);
+    return url;
+  }
+
+  private revokeBlob(url: string | null | undefined) {
+    if (!url || !this.blobUrls.has(url)) return;
+    URL.revokeObjectURL(url);
+    this.blobUrls.delete(url);
+  }
+
+  private revokeAllBlobs() {
+    for (const url of this.blobUrls) URL.revokeObjectURL(url);
+    this.blobUrls.clear();
+  }
+
+  private setLogoUploading(key: string, on: boolean) {
+    const next = new Set(this.uploadingLogoKeys());
+    if (on) next.add(key);
+    else next.delete(key);
+    this.uploadingLogoKeys.set(next);
+  }
+
+  private cancelLogoUpload(key: string, opts: { forget?: boolean } = {}) {
+    this.logoUploads.get(key)?.unsubscribe();
+    this.logoUploads.delete(key);
+    this.setLogoUploading(key, false);
+    const col = this.columns().find((c) => c.key === key);
+    const held = this.logoHeld.get(key);
+    this.logoHeld.delete(key);
+    if (col) {
+      this.revokeBlob(col.logoUrl);
+      if (opts.forget) {
+        this.forgetStaging(col.logoUrl);
+        this.forgetStaging(held);
+        col.logoUrl = null;
+      } else {
+        col.logoUrl = isBlobUrl(held) ? null : (held ?? null);
+      }
+      this.columns.set([...this.columns()]);
+    } else if (opts.forget) {
+      this.forgetStaging(held);
+    }
+  }
+
+  private discardStagingSession() {
+    if (this.sessionDiscarded || this.saving()) return;
+    this.sessionDiscarded = true;
+    const token = this.auth.token();
+    if (!token) return;
+    void fetch(
+      `${environment.apiUrl}/templates/staging/sessions/${this.sessionId}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+        keepalive: true,
+      },
+    );
+  }
+
   private applyTemplate(tpl: Template) {
+    this.bgUpload?.unsubscribe();
+    this.bgUpload = undefined;
+    this.uploadingBackground.set(false);
+    this.revokeBlob(this.backgroundImageUrl);
+    this.backgroundHeld = null;
+    for (const sub of this.logoUploads.values()) sub.unsubscribe();
+    this.logoUploads.clear();
+    this.uploadingLogoKeys.set(new Set());
+    this.logoHeld.clear();
+    for (const col of this.columns()) this.revokeBlob(col.logoUrl);
+
     this.isNew.set(false);
     this.templateId = tpl.id;
     this.name = tpl.name;

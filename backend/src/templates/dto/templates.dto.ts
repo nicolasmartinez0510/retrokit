@@ -32,6 +32,11 @@ export class TemplateColumnInputDto {
   @IsString()
   icon?: string | null;
 
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  logoUrl?: string | null;
+
   @IsInt()
   @Min(0)
   position!: number;
@@ -65,6 +70,11 @@ export class CreateTemplateDto {
   @ValidateIf((_, v) => v !== null)
   @Matches(HEX_COLOR, { message: 'El color de fondo debe ser un hex válido' })
   backgroundColor?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  backgroundImageUrl?: string | null;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -103,6 +113,11 @@ export class UpdateTemplateDto {
   @ValidateIf((_, v) => v !== null)
   @Matches(HEX_COLOR, { message: 'El color de fondo debe ser un hex válido' })
   backgroundColor?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  backgroundImageUrl?: string | null;
 
   @IsOptional()
   @IsArray()

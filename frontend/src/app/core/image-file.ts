@@ -53,3 +53,13 @@ export function rejectImageFile(
   }
   return null;
 }
+
+export const STAGING_URL_PREFIX = '/api/uploads/tmp/';
+
+export function isStagingUrl(url: string | null | undefined): url is string {
+  return typeof url === 'string' && url.startsWith(STAGING_URL_PREFIX);
+}
+
+export function isBlobUrl(url: string | null | undefined): url is string {
+  return typeof url === 'string' && url.startsWith('blob:');
+}

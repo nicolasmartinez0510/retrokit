@@ -1,8 +1,18 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import { mkdir } from 'fs/promises';
 import { resolve } from 'path';
 import { AppModule } from './app.module';
+
+function svgUploadHeaders(res: Response, filePath: string) {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.svg')) {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Content-Disposition', 'attachment');
+  }
+}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -20,15 +30,15 @@ async function bootstrap() {
   );
 
   const uploadDir = resolve(process.env.UPLOAD_DIR || './uploads');
+  const stagingDir = resolve(uploadDir, '.tmp');
+  await mkdir(stagingDir, { recursive: true });
   app.useStaticAssets(uploadDir, {
     prefix: '/api/uploads/',
-    setHeaders: (res, filePath) => {
-      const lower = filePath.toLowerCase();
-      if (lower.endsWith('.svg')) {
-        res.setHeader('Content-Type', 'image/svg+xml');
-        res.setHeader('Content-Disposition', 'attachment');
-      }
-    },
+    setHeaders: svgUploadHeaders,
+  });
+  app.useStaticAssets(stagingDir, {
+    prefix: '/api/uploads/tmp/',
+    setHeaders: svgUploadHeaders,
   });
 
   const port = process.env.PORT ?? 3000;

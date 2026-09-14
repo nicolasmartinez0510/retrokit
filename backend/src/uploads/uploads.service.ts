@@ -1,7 +1,12 @@
-import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
-import { promises as fs } from 'fs';
+import { promises as fs, type Dirent } from 'fs';
 import * as path from 'path';
 
 export const CARD_IMAGE_MIMES = new Set([
@@ -36,6 +41,23 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/gif': 'gif',
   'image/svg+xml': 'svg',
 };
+
+export const STAGING_PUBLIC_PREFIX = '/api/uploads/tmp/';
+const STAGING_DISK_DIR = '.tmp';
+const STAGING_TTL_MS = 6 * 60 * 60 * 1000;
+const STAGING_PURGE_EVERY_MS = 15 * 60 * 1000;
+const STAGING_MAX_FILES = 20;
+const STAGING_MAX_BYTES = 25 * 1024 * 1024;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SAFE_USER_ID = /^[a-zA-Z0-9_-]+$/;
+const STAGING_FILENAME_RE = /^[0-9a-f-]+\.(png|jpg|webp|svg)$/i;
+
+export function isStagingPublicUrl(
+  url: string | null | undefined,
+): url is string {
+  return typeof url === 'string' && url.startsWith(STAGING_PUBLIC_PREFIX);
+}
 
 function mb(bytes: number) {
   return (bytes / (1024 * 1024)).toFixed(1);
@@ -105,8 +127,9 @@ function unsupportedImageMessage(
 }
 
 @Injectable()
-export class UploadsService implements OnModuleInit {
+export class UploadsService implements OnModuleInit, OnModuleDestroy {
   readonly uploadDir: string;
+  private purgeTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly config: ConfigService) {
     this.uploadDir = path.resolve(
@@ -116,6 +139,19 @@ export class UploadsService implements OnModuleInit {
 
   async onModuleInit() {
     await fs.mkdir(this.uploadDir, { recursive: true });
+    await fs.mkdir(this.stagingRoot(), { recursive: true });
+    await this.purgeExpiredStaging();
+    this.purgeTimer = setInterval(() => {
+      void this.purgeExpiredStaging();
+    }, STAGING_PURGE_EVERY_MS);
+    this.purgeTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.purgeTimer) {
+      clearInterval(this.purgeTimer);
+      this.purgeTimer = null;
+    }
   }
 
   assertCardImage(file: Express.Multer.File | undefined) {
@@ -139,6 +175,12 @@ export class UploadsService implements OnModuleInit {
   /** Relative path from a public URL, or null if not under our uploads. */
   relativeFromPublicUrl(publicUrl: string | null | undefined): string | null {
     if (!publicUrl) return null;
+    if (publicUrl.startsWith(STAGING_PUBLIC_PREFIX)) {
+      return path.join(
+        STAGING_DISK_DIR,
+        publicUrl.slice(STAGING_PUBLIC_PREFIX.length),
+      );
+    }
     const prefix = '/api/uploads/';
     if (!publicUrl.startsWith(prefix)) return null;
     return publicUrl.slice(prefix.length);
@@ -244,6 +286,231 @@ export class UploadsService implements OnModuleInit {
     const dir = path.join(this.uploadDir, 'templates', templateId);
     try {
       await fs.rm(dir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async saveStaging(
+    userId: string,
+    sessionId: string,
+    file: Express.Multer.File,
+    kind: 'background' | 'logo',
+  ): Promise<string> {
+    this.assertSafeUserId(userId);
+    this.assertSessionId(sessionId);
+    if (kind === 'logo') this.assertLogo(file);
+    else this.assertBackground(file);
+
+    await this.purgeExpiredStaging();
+
+    const ext = EXT_BY_MIME[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException('Tipo de imagen no soportado');
+    }
+    const filename = `${randomUUID()}.${ext}`;
+    const dir = path.join(this.stagingRoot(), userId, sessionId);
+    await fs.mkdir(dir, { recursive: true });
+    const absolute = path.join(dir, filename);
+    await fs.writeFile(absolute, file.buffer);
+    await this.enforceUserStagingCap(userId, absolute);
+    return `${STAGING_PUBLIC_PREFIX}${userId}/${sessionId}/${filename}`;
+  }
+
+  assertOwnedStagingUrl(userId: string, publicUrl: string): string {
+    this.assertSafeUserId(userId);
+    if (!isStagingPublicUrl(publicUrl)) {
+      throw new BadRequestException('La imagen temporal no es válida');
+    }
+    const rest = publicUrl.slice(STAGING_PUBLIC_PREFIX.length);
+    const parts = rest.split('/').filter(Boolean);
+    if (parts.length !== 3) {
+      throw new BadRequestException('La imagen temporal no es válida');
+    }
+    const [urlUserId, sessionId, filename] = parts;
+    if (
+      urlUserId !== userId ||
+      !UUID_RE.test(sessionId) ||
+      !STAGING_FILENAME_RE.test(filename)
+    ) {
+      throw new BadRequestException('La imagen temporal no es válida');
+    }
+    const absolute = path.resolve(
+      this.stagingRoot(),
+      userId,
+      sessionId,
+      filename,
+    );
+    const ownedRoot = path.resolve(this.stagingRoot(), userId) + path.sep;
+    if (!absolute.startsWith(ownedRoot)) {
+      throw new BadRequestException('La imagen temporal no es válida');
+    }
+    return absolute;
+  }
+
+  async assertStagingFileExists(userId: string, publicUrl: string) {
+    const absolute = this.assertOwnedStagingUrl(userId, publicUrl);
+    try {
+      await fs.access(absolute);
+    } catch {
+      throw new BadRequestException(
+        'La imagen temporal expiró. Volvé a subirla.',
+      );
+    }
+  }
+
+  async promoteStaging(
+    userId: string,
+    publicUrl: string,
+    templateId: string,
+    prefix: string,
+  ): Promise<string> {
+    const source = this.assertOwnedStagingUrl(userId, publicUrl);
+    try {
+      await fs.access(source);
+    } catch {
+      throw new BadRequestException(
+        'La imagen temporal expiró. Volvé a subirla.',
+      );
+    }
+    const ext = path.extname(source).slice(1).toLowerCase();
+    if (!ext) {
+      throw new BadRequestException('La imagen temporal no es válida');
+    }
+    const relative = path.join(
+      'templates',
+      templateId,
+      `${prefix}-${randomUUID()}.${ext}`,
+    );
+    const dest = path.join(this.uploadDir, relative);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.rename(source, dest);
+    return this.toPublicUrl(relative);
+  }
+
+  async deleteStaging(userId: string, publicUrl: string) {
+    const absolute = this.assertOwnedStagingUrl(userId, publicUrl);
+    try {
+      await fs.unlink(absolute);
+    } catch {
+      /* missing file is fine */
+    }
+  }
+
+  async deleteStagingSession(userId: string, sessionId: string) {
+    this.assertSafeUserId(userId);
+    this.assertSessionId(sessionId);
+    const dir = path.resolve(this.stagingRoot(), userId, sessionId);
+    const ownedRoot = path.resolve(this.stagingRoot(), userId);
+    if (!dir.startsWith(ownedRoot + path.sep) && dir !== ownedRoot) {
+      throw new BadRequestException('Sesión de imágenes inválida');
+    }
+    await fs.rm(dir, { recursive: true, force: true });
+    const userDir = path.resolve(this.stagingRoot(), userId);
+    try {
+      const leftover = await fs.readdir(userDir);
+      if (!leftover.length) await fs.rmdir(userDir);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async purgeExpiredStaging(maxAgeMs = STAGING_TTL_MS) {
+    const root = this.stagingRoot();
+    await fs.mkdir(root, { recursive: true });
+    const files = await this.listFilesRecursive(root);
+    const cutoff = Date.now() - maxAgeMs;
+    for (const file of files) {
+      if (file.mtimeMs < cutoff) {
+        try {
+          await fs.unlink(file.abs);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    await this.pruneEmptyDirs(root);
+  }
+
+  private stagingRoot() {
+    return path.join(this.uploadDir, STAGING_DISK_DIR);
+  }
+
+  private assertSafeUserId(userId: string) {
+    if (!userId || !SAFE_USER_ID.test(userId)) {
+      throw new BadRequestException('La imagen temporal no es válida');
+    }
+  }
+
+  private assertSessionId(sessionId: string) {
+    if (!sessionId || !UUID_RE.test(sessionId)) {
+      throw new BadRequestException('Sesión de imágenes inválida');
+    }
+  }
+
+  private async enforceUserStagingCap(userId: string, keepPath: string) {
+    const userDir = path.join(this.stagingRoot(), userId);
+    const files = await this.listFilesRecursive(userDir);
+    files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    let count = files.length;
+    let bytes = files.reduce((sum, file) => sum + file.size, 0);
+    const keep = path.resolve(keepPath);
+    for (const file of files) {
+      if (count <= STAGING_MAX_FILES && bytes <= STAGING_MAX_BYTES) break;
+      if (path.resolve(file.abs) === keep) continue;
+      try {
+        await fs.unlink(file.abs);
+      } catch {
+        continue;
+      }
+      count -= 1;
+      bytes -= file.size;
+    }
+  }
+
+  private async listFilesRecursive(
+    dir: string,
+  ): Promise<{ abs: string; mtimeMs: number; size: number }[]> {
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    const out: { abs: string; mtimeMs: number; size: number }[] = [];
+    for (const entry of entries) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        out.push(...(await this.listFilesRecursive(abs)));
+      } else if (entry.isFile()) {
+        try {
+          const st = await fs.stat(abs);
+          out.push({ abs, mtimeMs: st.mtimeMs, size: st.size });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return out;
+  }
+
+  private async pruneEmptyDirs(dir: string) {
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        await this.pruneEmptyDirs(path.join(dir, entry.name));
+      }
+    }
+    const root = path.resolve(this.stagingRoot());
+    if (path.resolve(dir) === root) return;
+    try {
+      const left = await fs.readdir(dir);
+      if (!left.length) await fs.rmdir(dir);
     } catch {
       /* ignore */
     }

@@ -36,6 +36,7 @@ export interface CreateTemplatePayload {
   votesPerParticipant?: number;
   maxVotesPerCard?: number;
   backgroundColor?: string | null;
+  backgroundImageUrl?: string | null;
   columns: TemplateColumnInput[];
 }
 
@@ -46,6 +47,7 @@ export interface UpdateTemplatePayload {
   votesPerParticipant?: number;
   maxVotesPerCard?: number;
   backgroundColor?: string | null;
+  backgroundImageUrl?: string | null;
   columns?: TemplateColumnInput[];
 }
 
