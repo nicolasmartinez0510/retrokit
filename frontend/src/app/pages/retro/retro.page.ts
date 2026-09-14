@@ -1,12 +1,14 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
+  HostListener,
   OnDestroy,
   OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
@@ -32,6 +34,19 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 type SortMode = 'most' | 'least' | 'original';
 
+type BoardCard = Card & {
+  isGroup?: boolean;
+  groupSize?: number;
+  members?: Card[];
+};
+
+type StackAuthor = {
+  authorId: string;
+  authorName: string;
+  authorAvatarId: string;
+  ownerId?: string;
+};
+
 export interface RetroAccessDenied {
   teamId: string;
   teamName: string;
@@ -53,6 +68,7 @@ const CARD_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
   selector: 'app-retro-page',
   imports: [
     FormsModule,
+    NgTemplateOutlet,
     RouterLink,
     AutosizeTextareaDirective,
     EmojiPickerComponent,
@@ -109,7 +125,8 @@ export class RetroPage implements OnInit, OnDestroy {
   editImagePreview: string | null = null;
   editRemoveImage = false;
   readonly imageAccept = CARD_IMAGE_ACCEPT;
-  selectedCardId: string | null = null;
+  selectedCardId = signal<string | null>(null);
+  expandedGroupIds = signal<ReadonlySet<string>>(new Set());
   sortMode = signal<SortMode>('most');
   showSettings = false;
   showInvite = false;
@@ -245,6 +262,7 @@ export class RetroPage implements OnInit, OnDestroy {
         this.accessDenied.set(null);
         this.loadError.set('');
         this.retro.set(r);
+        if (r.status !== 'grouping') this.selectedCardId.set(null);
         this.maxComments = r.maxCommentsPerParticipant;
         this.votesPerParticipant = r.votesPerParticipant;
         this.maxVotesPerCard = r.maxVotesPerCard;
@@ -382,31 +400,32 @@ export class RetroPage implements OnInit, OnDestroy {
     if (next !== board) this.retro.set(next);
   };
 
-  cardsForColumn(columnId: string): Card[] {
+  cardsForColumn(columnId: string): BoardCard[] {
     const r = this.retro();
     if (!r) return [];
-    let cards = r.cards.filter((c) => c.columnId === columnId && !c.groupId);
-    // also show group representative: first card of each group in this column
+    let cards: BoardCard[] = r.cards.filter(
+      (c) => c.columnId === columnId && !c.groupId,
+    );
     const grouped = r.groups
-      .map((g) => {
-        const gCards = r.cards.filter((c) => c.groupId === g.id);
-        if (!gCards.length) return null;
-        if (gCards[0].columnId !== columnId) return null;
-        const texts = gCards.map((c) => c.content).filter((t) => t.trim());
-        const imageUrls = gCards
-          .map((c) => c.imageUrl)
-          .filter((u): u is string => !!u);
+      .map((g): BoardCard | null => {
+        const members = r.cards
+          .filter((c) => c.groupId === g.id)
+          .sort(
+            (a, b) =>
+              a.position - b.position || a.createdAt.localeCompare(b.createdAt),
+          );
+        if (!members.length) return null;
+        const header = members[0];
+        if (header.columnId !== columnId) return null;
         return {
-          ...gCards[0],
-          content: texts.join(' · '),
-          imageUrl: imageUrls[0] ?? null,
-          imageUrls,
-          isGroup: true,
+          ...header,
+          isGroup: members.length > 1,
           groupId: g.id,
-          groupSize: gCards.length,
-        } as Card & { isGroup?: boolean; groupSize?: number };
+          groupSize: members.length,
+          members,
+        };
       })
-      .filter(Boolean) as Card[];
+      .filter((row): row is BoardCard => !!row);
 
     cards = [...cards, ...grouped];
 
@@ -421,6 +440,102 @@ export class RetroPage implements OnInit, OnDestroy {
       }
     }
     return cards;
+  }
+
+  isGroupCard(card: BoardCard): boolean {
+    return !!card.isGroup && (card.groupSize ?? 0) > 1;
+  }
+
+  isStackExpanded(card: BoardCard): boolean {
+    return !!card.groupId && this.expandedGroupIds().has(card.groupId);
+  }
+
+  visibleStackMembers(card: BoardCard): Card[] {
+    if (!this.isGroupCard(card) || !card.members?.length) return [card];
+    if (this.isStackExpanded(card)) return card.members;
+    return [card.members[0]];
+  }
+
+  stackAuthorAvatars(card: BoardCard): StackAuthor[] {
+    const members = card.members?.length ? card.members : [card];
+    const seen = new Set<string>();
+    const authors: StackAuthor[] = [];
+    for (const member of members) {
+      if (member.hidden || member.isAnonymous || !member.authorAvatarId) {
+        continue;
+      }
+      if (seen.has(member.authorId)) continue;
+      seen.add(member.authorId);
+      authors.push({
+        authorId: member.authorId,
+        authorName: member.authorName ?? '',
+        authorAvatarId: member.authorAvatarId,
+        ownerId: this.cardAuthorOwnerId(member),
+      });
+    }
+    return authors;
+  }
+
+  isGroupTarget(card: BoardCard): boolean {
+    const selectedId = this.selectedCardId();
+    if (!selectedId || card.hidden) return false;
+    if (card.id === selectedId) return false;
+    const r = this.retro();
+    const selected = r?.cards.find((c) => c.id === selectedId);
+    if (selected?.groupId && card.groupId && selected.groupId === card.groupId) {
+      return false;
+    }
+    return true;
+  }
+
+  isGroupingSelect(card: BoardCard): boolean {
+    const r = this.retro();
+    return (
+      r?.status === 'grouping' &&
+      this.isParticipant() &&
+      this.editingCardId !== card.id
+    );
+  }
+
+  toggleStack(card: BoardCard, event?: Event) {
+    event?.stopPropagation();
+    if (!this.isGroupCard(card) || !card.groupId) return;
+    const next = new Set(this.expandedGroupIds());
+    if (next.has(card.groupId)) next.delete(card.groupId);
+    else next.add(card.groupId);
+    this.expandedGroupIds.set(next);
+  }
+
+  onBoardCardClick(card: BoardCard, event?: Event) {
+    const r = this.retro();
+    if (!r || this.editingCardId === card.id) return;
+    if (this.isGroupingSelect(card)) {
+      this.selectForGroup(card.id);
+      return;
+    }
+    if (
+      (r.status === 'voting' || r.status === 'actions') &&
+      this.isGroupCard(card)
+    ) {
+      this.toggleStack(card, event);
+    }
+  }
+
+  onStackArticleClick(member: Card, card: BoardCard, event: Event) {
+    if (member.id !== card.id) {
+      event.stopPropagation();
+      return;
+    }
+    this.onBoardCardClick(card, event);
+    event.stopPropagation();
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onGroupingEscape(event: KeyboardEvent) {
+    if (event.key !== 'Escape') return;
+    if (this.showJoinModal() || this.showSettings || this.showInvite) return;
+    if (this.editingCardId) return;
+    if (this.selectedCardId()) this.selectedCardId.set(null);
   }
 
   voteCount(card: Card): number {
@@ -559,7 +674,7 @@ export class RetroPage implements OnInit, OnDestroy {
     const r = this.retro();
     if (!r) return false;
     if (r.status !== 'comments' && r.status !== 'grouping') return false;
-    if (card.hidden || card.isGroup || card.groupId) return false;
+    if (card.hidden) return false;
     return this.isOwnCard(card) || !!r.me?.isFacilitator;
   }
 
@@ -683,7 +798,6 @@ export class RetroPage implements OnInit, OnDestroy {
   }
 
   cardImages(card: Card): string[] {
-    if (card.imageUrls?.length) return card.imageUrls;
     if (card.imageUrl) return [card.imageUrl];
     return [];
   }
@@ -726,7 +840,7 @@ export class RetroPage implements OnInit, OnDestroy {
     this.api.deleteCard(r.id, card.id).subscribe({
       next: () => {
         if (this.editingCardId === card.id) this.cancelEdit();
-        if (this.selectedCardId === card.id) this.selectedCardId = null;
+        if (this.selectedCardId() === card.id) this.selectedCardId.set(null);
         this.reload(r.id);
       },
       error: (e) =>
@@ -757,17 +871,25 @@ export class RetroPage implements OnInit, OnDestroy {
   selectForGroup(cardId: string) {
     const r = this.retro();
     if (!r || r.status !== 'grouping' || this.isSpectator()) return;
-    if (!this.selectedCardId) {
-      this.selectedCardId = cardId;
+    const selectedId = this.selectedCardId();
+    if (!selectedId) {
+      this.selectedCardId.set(cardId);
       return;
     }
-    if (this.selectedCardId === cardId) {
-      this.selectedCardId = null;
+    if (selectedId === cardId) {
+      this.selectedCardId.set(null);
       return;
     }
-    this.api.groupCards(r.id, this.selectedCardId, cardId).subscribe({
+    const selected = r.cards.find((c) => c.id === selectedId);
+    const clicked = r.cards.find((c) => c.id === cardId);
+    if (selected?.groupId && clicked?.groupId === selected.groupId) {
+      return;
+    }
+    const sourceId = selected?.groupId ? cardId : selectedId;
+    const targetId = selected?.groupId ? selectedId : cardId;
+    this.api.groupCards(r.id, sourceId, targetId).subscribe({
       next: () => {
-        this.selectedCardId = null;
+        this.selectedCardId.set(null);
         this.reload(r.id);
       },
       error: (e) => this.error.set(e?.error?.message || 'No se pudo agrupar'),

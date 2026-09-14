@@ -715,9 +715,16 @@ export class RetrosService {
       });
     }
 
+    const siblings = await this.prisma.card.findMany({
+      where: { groupId },
+      select: { position: true },
+    });
+    const nextPosition =
+      Math.max(target.position, ...siblings.map((c) => c.position)) + 1;
+
     const updatedSource = await this.prisma.card.update({
       where: { id: source.id },
-      data: { groupId, columnId: target.columnId },
+      data: { groupId, columnId: target.columnId, position: nextPosition },
       include: {
         author: {
           include: {

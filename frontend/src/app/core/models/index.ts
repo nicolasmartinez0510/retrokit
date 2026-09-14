@@ -159,6 +159,10 @@ export interface Card {
   votes?: Vote[];
   /** Client-only: images from grouped cards */
   imageUrls?: string[];
+  /** Client-only: this row is a group stack on the board */
+  isGroup?: boolean;
+  groupSize?: number;
+  members?: Card[];
 }
 
 export interface CardGroup {
