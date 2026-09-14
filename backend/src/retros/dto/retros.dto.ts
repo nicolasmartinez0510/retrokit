@@ -11,6 +11,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { AVATAR_ID_LIST } from '../../common/avatars';
 
@@ -223,4 +224,11 @@ export class CreateActionFromRetroDto {
 export class SetCommentsReadyDto {
   @IsBoolean()
   ready!: boolean;
+}
+
+export class SetPresenterDto {
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @IsNotEmpty()
+  cardId!: string | null;
 }

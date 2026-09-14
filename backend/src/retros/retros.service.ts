@@ -312,6 +312,7 @@ export class RetrosService {
       where: { id: retroId },
       data: {
         status: target,
+        presenterCardId: null,
         ...(target === RetroStatus.closed
           ? { closedAt: new Date(), timerEndsAt: null }
           : { closedAt: null }),
@@ -681,8 +682,46 @@ export class RetrosService {
 
     await this.prisma.card.delete({ where: { id: cardId } });
     await this.uploads.deleteByPublicUrl(card.imageUrl);
+    if (retro.presenterCardId === cardId) {
+      await this.prisma.retrospective.update({
+        where: { id: retroId },
+        data: { presenterCardId: null },
+      });
+      this.events.emit(retroId, 'presenter-changed', { presenterCardId: null });
+    }
     this.events.emit(retroId, 'card-deleted', { id: cardId, retroId });
     return { deleted: true };
+  }
+
+  async setPresenter(
+    user: JwtPayload,
+    retroId: string,
+    cardId: string | null,
+  ) {
+    await this.assertFacilitatorOfRetro(user, retroId);
+    const retro = await this.getRetroOrThrow(retroId);
+    if (retro.status !== RetroStatus.actions) {
+      throw new BadRequestException(
+        'Presentation is only available in the action plan phase',
+      );
+    }
+
+    let presenterCardId: string | null = null;
+    if (cardId !== null) {
+      const card = await this.prisma.card.findFirst({
+        where: { id: cardId, retroId },
+      });
+      if (!card) throw new NotFoundException('Card not found');
+      presenterCardId = await this.canonicalPresenterCardId(retroId, card);
+    }
+
+    await this.prisma.retrospective.update({
+      where: { id: retroId },
+      data: { presenterCardId },
+    });
+
+    this.events.emit(retroId, 'presenter-changed', { presenterCardId });
+    return { presenterCardId };
   }
 
   async groupCards(user: JwtPayload, retroId: string, dto: GroupCardsDto) {
@@ -1298,6 +1337,18 @@ export class RetrosService {
     return this.prisma.participant.findFirst({
       where: { retroId, userId: user.sub, isGuest: false },
     });
+  }
+
+  private async canonicalPresenterCardId(
+    retroId: string,
+    card: { id: string; groupId: string | null },
+  ) {
+    if (!card.groupId) return card.id;
+    const header = await this.prisma.card.findFirst({
+      where: { retroId, groupId: card.groupId },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    });
+    return header?.id ?? card.id;
   }
 
   private async getRetroOrThrow(retroId: string) {

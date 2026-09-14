@@ -4,16 +4,16 @@ overview: Overlay follow-me del facilitator en Plan de acción. El mazo son las 
 todos:
   - id: schema-presenter
     content: presenterCardId en Prisma + migración; limpiar en advancePhase y deleteCard
-    status: pending
+    status: completed
   - id: api-presenter
     content: POST /retros/:id/presenter, DTO, emit presenter-changed, getBoard lo expone
-    status: pending
+    status: completed
   - id: ui-overlay
     content: Mazo = columna del medio (actionPlanItems); overlay; Presentar; teclado P/←/→; clic en tarjeta del medio para saltar; modal de acción vinculado; patch local del socket
-    status: pending
+    status: completed
   - id: group-slide
     content: "Un grupo = una sola slide: todos los miembros visibles juntos como stickies; next/prev no recorre miembros uno por uno; votos del groupId una sola vez"
-    status: pending
+    status: completed
   - id: verify-browser
     content: "Dos clientes: follow-me sobre el medio, salto desde una tarjeta, grupo entero en una slide, crear acción vinculada, salir de fase, reload, espectador"
     status: pending

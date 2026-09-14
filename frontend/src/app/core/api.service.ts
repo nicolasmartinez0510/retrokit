@@ -193,6 +193,13 @@ export class ApiService {
     return this.http.post(`${this.base}/retros/${id}/phase`, { status });
   }
 
+  setPresenter(id: string, cardId: string | null) {
+    return this.http.post<{ presenterCardId: string | null }>(
+      `${this.base}/retros/${id}/presenter`,
+      { cardId },
+    );
+  }
+
   setCommentsReady(id: string, ready: boolean) {
     return this.http.patch<{ commentsReady?: boolean; votesReady?: boolean }>(
       `${this.base}/retros/${id}/me/ready`,

@@ -3,6 +3,7 @@
     class="retro-scene"
     [class.has-theme]="!!r.backgroundColor || !!r.backgroundImageUrl"
     [class.has-image]="!!r.backgroundImageUrl"
+    [class.is-presenting]="isPresenting()"
     [style.background-color]="r.backgroundColor || null"
   >
     @if (r.backgroundImageUrl) {
@@ -147,6 +148,22 @@
           >
             {{ joining() ? 'Uniéndote…' : 'Unirme a la retro' }}
           </button>
+        }
+        @if (isFacilitator() && r.status === 'actions') {
+          <label
+            class="present-switch"
+            [class.on]="presentArmed()"
+            title="Activá para clickear una tarjeta y presentarla (P)"
+          >
+            <span>Presentar</span>
+            <input
+              type="checkbox"
+              [checked]="presentArmed()"
+              (change)="setPresentArmed($any($event.target).checked)"
+              name="presentArmed"
+            />
+            <span class="present-switch-track" aria-hidden="true"></span>
+          </label>
         }
       </div>
     </header>
@@ -392,6 +409,11 @@
               </select>
             </span>
           </label>
+          @if (isFacilitator() && presentArmed() && !isPresenting()) {
+            <span class="hint">Clickeá una tarjeta para presentarla</span>
+          } @else if (!isFacilitator() && isPresenting()) {
+            <span class="hint">El facilitator está presentando</span>
+          }
         }
         @if (r.status === 'grouping' && isParticipant()) {
           <span class="hint">
@@ -450,7 +472,11 @@
               @if (items.length) {
                 <div class="detail-cards">
                   @for (item of items; track item.id) {
-                    <article class="neatro-item">
+                    <article
+                      class="neatro-item"
+                      [class.presentable]="presentArmed()"
+                      (click)="jumpToSlide(item, $event)"
+                    >
                       <header>
                         @if (columnForCard(item); as col) {
                           <h3>
@@ -1074,6 +1100,191 @@
           <span class="badge">{{ voteCount(c) }} votos</span>
         }
       </div>
+    </ng-template>
+
+    @if (isPresenting()) {
+      <div
+        class="present-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="present-title"
+      >
+        @if (isFacilitator()) {
+          <button
+            type="button"
+            class="present-close"
+            title="Salir (Esc)"
+            aria-label="Salir de la presentación"
+            (click)="stopPresenting()"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        }
+
+        @if (currentPresentItem(); as slide) {
+          @for (s of [slide]; track s.id) {
+            <header
+              class="present-top"
+              [class.dir-next]="presentDir() === 'next'"
+              [class.dir-prev]="presentDir() === 'prev'"
+              [class.dir-in]="presentDir() === 'in'"
+            >
+              @if (columnForCard(s); as col) {
+                <h2 id="present-title">
+                  @if (col.logoUrl) {
+                    <img class="col-logo-sm" [src]="col.logoUrl" alt="" />
+                  } @else if (col.icon) {
+                    <span class="icon">{{ col.icon }}</span>
+                  }
+                  {{ col.title }}
+                </h2>
+              } @else {
+                <h2 id="present-title">Presentación</h2>
+              }
+              <span class="present-title-line" aria-hidden="true"></span>
+              @if (!isFacilitator()) {
+                <p class="present-follow">El facilitator está presentando</p>
+              }
+            </header>
+          }
+
+          @if (isFacilitator() && presentationDeck().length) {
+            <div class="present-nav">
+              <button
+                type="button"
+                class="present-arrow"
+                [disabled]="!canPresentPrev()"
+                aria-label="Anterior"
+                (click)="presentPrev()"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15 6 9 12l6 6" />
+                </svg>
+              </button>
+              <div class="present-dots" role="tablist" aria-label="Slides">
+                @for (item of presentationDeck(); track item.id; let i = $index) {
+                  <button
+                    type="button"
+                    class="present-dot"
+                    [class.active]="i === presentIndex()"
+                    [attr.aria-label]="'Ir a la slide ' + (i + 1)"
+                    [attr.aria-current]="i === presentIndex() ? 'true' : null"
+                    (click)="jumpToDeckIndex(i)"
+                  ></button>
+                }
+              </div>
+              <button
+                type="button"
+                class="present-arrow"
+                [disabled]="!canPresentNext()"
+                aria-label="Siguiente"
+                (click)="presentNext()"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m9 6 6 6-6 6" />
+                </svg>
+              </button>
+            </div>
+          }
+
+          <div class="present-stage">
+            <div class="present-slide-clip">
+              @for (s of [slide]; track s.id) {
+                <div
+                  class="present-slide"
+                  [class.dir-next]="presentDir() === 'next'"
+                  [class.dir-prev]="presentDir() === 'prev'"
+                  [class.dir-in]="presentDir() === 'in'"
+                >
+                  <div class="present-slide-head">
+                    <span class="present-votes">
+                      {{ voteCount(s) }}
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3z"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                  <div
+                    class="present-notes"
+                    [class.scrollable]="presentSlideMembers(s).length > 5"
+                  >
+                    @for (member of presentSlideMembers(s); track member.id) {
+                      <div class="present-note">
+                        <ng-container
+                          *ngTemplateOutlet="
+                            presentNote;
+                            context: { $implicit: member }
+                          "
+                        />
+                      </div>
+                    }
+                  </div>
+                  @if (isParticipant()) {
+                    <button
+                      type="button"
+                      class="neatro-create"
+                      (click)="openCreateActionFromTopic(s)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1 2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z"
+                        />
+                        <path d="M16.5 3.5v4h4" />
+                      </svg>
+                      Crear acción
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        } @else {
+          <header class="present-top">
+            <h2 id="present-title">Presentación</h2>
+          </header>
+          <p class="present-missing">Esta tarjeta ya no está disponible.</p>
+        }
+
+        <button
+          type="button"
+          class="present-confetti"
+          title="Lanzar confeti"
+          aria-label="Lanzar confeti"
+          (click)="throwConfetti()"
+        >
+          🎉
+        </button>
+      </div>
+    }
+
+    <ng-template #presentNote let-c>
+      @if (c.content) {
+        <p>{{ c.content }}</p>
+      }
+      @if (cardImages(c).length) {
+        <div class="card-media">
+          @for (url of cardImages(c); track url) {
+            <img [src]="url" alt="" />
+          }
+        </div>
+      }
+      @if (!c.isAnonymous && c.authorName) {
+        <small class="card-author">
+          @if (c.authorAvatarId) {
+            <app-user-avatar
+              [avatarId]="c.authorAvatarId"
+              [ownerId]="cardAuthorOwnerId(c)"
+              [name]="c.authorName"
+              size="sm"
+            />
+          }
+          {{ c.authorName }}
+        </small>
+      }
     </ng-template>
 
     @if (showActionModal()) {

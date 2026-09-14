@@ -116,6 +116,7 @@ model Retrospective {
   timerPausedRemaining      Int?
   backgroundColor           String?
   backgroundImageUrl        String?
+  presenterCardId           String?
   createdAt                 DateTime       @default(now())
   closedAt                  DateTime?
   team                      Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)

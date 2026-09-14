@@ -145,6 +145,9 @@ export class RetroPage implements OnInit, OnDestroy {
   sortMode = signal<SortMode>('most');
   voteFilter = signal<VoteFilter>('voted');
   selectedThemeIds = signal<ReadonlySet<string>>(new Set());
+  presentArmed = signal(false);
+  presentDir = signal<'next' | 'prev' | 'in'>('in');
+  private lastPresentIndex = -1;
   showActionModal = signal(false);
   actionSaving = signal(false);
   actionFormTitle = '';
@@ -236,6 +239,11 @@ export class RetroPage implements OnInit, OnDestroy {
       !!this.retro()?.me?.isFacilitator && this.isParticipant(),
   );
 
+  isPresenting = computed(() => {
+    const r = this.retro();
+    return r?.status === 'actions' && !!r.presenterCardId;
+  });
+
   isTimerRunning = computed(() => {
     const left = this.timerLeft();
     return left !== null && left > 0 && !!this.retro()?.timerEndsAt;
@@ -283,6 +291,7 @@ export class RetroPage implements OnInit, OnDestroy {
     this.sockets.on('retro-deleted', this.onRetroDeleted);
     this.sockets.on('confetti', this.onConfetti);
     this.sockets.on('avatar-changed', this.onAvatarChanged);
+    this.sockets.on('presenter-changed', this.onPresenterChanged);
   }
 
   ngOnDestroy() {
@@ -295,6 +304,7 @@ export class RetroPage implements OnInit, OnDestroy {
     this.sockets.off('retro-deleted', this.onRetroDeleted);
     this.sockets.off('confetti', this.onConfetti);
     this.sockets.off('avatar-changed', this.onAvatarChanged);
+    this.sockets.off('presenter-changed', this.onPresenterChanged);
     this.clearAllDraftPreviews();
     this.clearEditImagePreview();
     this.sockets.leaveRetro(this.retroId);
@@ -332,6 +342,10 @@ export class RetroPage implements OnInit, OnDestroy {
         this.loadError.set('');
         this.retro.set(r);
         if (r.status !== 'grouping') this.selectedCardId.set(null);
+        if (r.status !== 'actions') {
+          this.presentArmed.set(false);
+          this.lastPresentIndex = -1;
+        }
         this.maxComments = r.maxCommentsPerParticipant;
         this.votesPerParticipant = r.votesPerParticipant;
         this.maxVotesPerCard = r.maxVotesPerCard;
@@ -467,6 +481,11 @@ export class RetroPage implements OnInit, OnDestroy {
     if (!event || !board) return;
     const next = applyAvatarChanged(board, event);
     if (next !== board) this.retro.set(next);
+  };
+
+  private readonly onPresenterChanged = (payload: unknown) => {
+    const presenterCardId = parsePresenterCardId(payload);
+    this.applyPresenterCardId(presenterCardId);
   };
 
   cardsForColumn(columnId: string, opts?: { sort?: boolean }): BoardCard[] {
@@ -606,19 +625,55 @@ export class RetroPage implements OnInit, OnDestroy {
   }
 
   @HostListener('document:keydown', ['$event'])
-  onGroupingEscape(event: KeyboardEvent) {
-    if (event.key !== 'Escape') return;
-    if (this.showJoinModal()) return;
-    if (this.showSettings) {
-      this.showSettings = false;
+  onDocumentKeydown(event: KeyboardEvent) {
+    if (this.isTypingTarget(event.target)) return;
+    if (this.showJoinModal() || this.showActionModal()) return;
+
+    if (event.key === 'Escape') {
+      if (this.showSettings) {
+        this.showSettings = false;
+        return;
+      }
+      if (this.showInvite) {
+        this.showInvite = false;
+        return;
+      }
+      if (this.editingCardId) return;
+      if (this.selectedCardId()) {
+        this.selectedCardId.set(null);
+        return;
+      }
+      if (this.isPresenting() && this.isFacilitator()) {
+        event.preventDefault();
+        this.stopPresenting();
+      }
       return;
     }
-    if (this.showInvite) {
-      this.showInvite = false;
+
+    if (!this.isFacilitator() || this.retro()?.status !== 'actions') return;
+    if (this.showSettings || this.showInvite) return;
+
+    if (event.key === 'p' || event.key === 'P') {
+      event.preventDefault();
+      this.setPresentArmed(!this.presentArmed());
       return;
     }
-    if (this.editingCardId) return;
-    if (this.selectedCardId()) this.selectedCardId.set(null);
+
+    if (!this.isPresenting()) return;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      this.presentPrev();
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      this.presentNext();
+    }
+  }
+
+  private isTypingTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return false;
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    return target.isContentEditable;
   }
 
   voteCount(card: Card): number {
@@ -1118,6 +1173,156 @@ export class RetroPage implements OnInit, OnDestroy {
     return items;
   }
 
+  presentationDeck(): BoardCard[] {
+    return this.actionPlanItems();
+  }
+
+  canArmPresenting() {
+    return this.isFacilitator() && this.retro()?.status === 'actions';
+  }
+
+  setPresentArmed(on: boolean) {
+    if (!this.canArmPresenting()) return;
+    this.presentArmed.set(on);
+    if (!on) this.stopPresenting();
+  }
+
+  currentPresentItem(): BoardCard | null {
+    const id = this.retro()?.presenterCardId;
+    if (!id) return null;
+    return this.findPresentItem(id);
+  }
+
+  presentIndex() {
+    const item = this.currentPresentItem();
+    if (!item) return -1;
+    return this.presentationDeck().findIndex((row) => row.id === item.id);
+  }
+
+  canPresentPrev() {
+    if (!this.isFacilitator() || !this.isPresenting()) return false;
+    const deck = this.presentationDeck();
+    if (!deck.length) return false;
+    const index = this.presentIndex();
+    return index < 0 || index > 0;
+  }
+
+  canPresentNext() {
+    if (!this.isFacilitator() || !this.isPresenting()) return false;
+    const deck = this.presentationDeck();
+    if (!deck.length) return false;
+    const index = this.presentIndex();
+    return index < 0 || index < deck.length - 1;
+  }
+
+  presentSlideMembers(item: BoardCard): Card[] {
+    if (this.isGroupCard(item)) return item.members ?? [item];
+    return [item];
+  }
+
+  stopPresenting() {
+    if (!this.isFacilitator()) return;
+    this.setPresenterCard(null);
+  }
+
+  presentPrev() {
+    const deck = this.presentationDeck();
+    if (!deck.length) return;
+    const index = this.presentIndex();
+    const prev = index < 0 ? deck[deck.length - 1] : deck[index - 1];
+    if (prev) this.setPresenterCard(prev.id);
+  }
+
+  presentNext() {
+    const deck = this.presentationDeck();
+    if (!deck.length) return;
+    const index = this.presentIndex();
+    const next = index < 0 ? deck[0] : deck[index + 1];
+    if (next) this.setPresenterCard(next.id);
+  }
+
+  jumpToSlide(item: BoardCard, event: Event) {
+    if (!this.presentArmed() || !this.isFacilitator()) return;
+    if (this.retro()?.status !== 'actions') return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('button')) return;
+    this.setPresenterCard(item.id);
+  }
+
+  jumpToDeckIndex(index: number) {
+    const item = this.presentationDeck()[index];
+    if (item) this.setPresenterCard(item.id);
+  }
+
+  private setPresenterCard(cardId: string | null) {
+    const r = this.retro();
+    if (!r || !this.isFacilitator()) return;
+    const previous = r.presenterCardId ?? null;
+    if (previous === cardId) return;
+    this.applyPresenterCardId(cardId);
+    this.api.setPresenter(r.id, cardId).subscribe({
+      next: ({ presenterCardId }) => {
+        if ((this.retro()?.presenterCardId ?? null) === presenterCardId) return;
+        this.applyPresenterCardId(presenterCardId);
+      },
+      error: (e) => {
+        this.applyPresenterCardId(previous);
+        this.error.set(
+          e?.error?.message || 'No se pudo actualizar la presentación',
+        );
+      },
+    });
+  }
+
+  private applyPresenterCardId(presenterCardId: string | null) {
+    const board = this.retro();
+    if (!board || board.presenterCardId === presenterCardId) return;
+    this.notePresentTransition(presenterCardId);
+    this.retro.set({ ...board, presenterCardId });
+  }
+
+  private notePresentTransition(nextId: string | null) {
+    const nextIndex = nextId
+      ? this.presentationDeck().findIndex((row) => row.id === nextId)
+      : -1;
+    if (
+      this.lastPresentIndex >= 0 &&
+      nextIndex >= 0 &&
+      nextIndex !== this.lastPresentIndex
+    ) {
+      this.presentDir.set(nextIndex > this.lastPresentIndex ? 'next' : 'prev');
+    } else {
+      this.presentDir.set('in');
+    }
+    this.lastPresentIndex = nextIndex;
+  }
+
+  private findPresentItem(cardId: string): BoardCard | null {
+    const inDeck = this.presentationDeck().find((item) => item.id === cardId);
+    if (inDeck) return inDeck;
+    const r = this.retro();
+    if (!r) return null;
+    const card = r.cards.find((c) => c.id === cardId);
+    if (!card) return null;
+    let headerId = card.id;
+    if (card.groupId) {
+      const members = r.cards
+        .filter((c) => c.groupId === card.groupId)
+        .sort(
+          (a, b) =>
+            a.position - b.position || a.createdAt.localeCompare(b.createdAt),
+        );
+      if (members[0]) headerId = members[0].id;
+    }
+    for (const col of r.columns) {
+      const found = this.cardsForColumn(col.id, { sort: false }).find(
+        (item) => item.id === headerId,
+      );
+      if (found) return found;
+    }
+    return null;
+  }
+
   hasSelectedThemes() {
     return this.selectedThemeIds().size > 0;
   }
@@ -1344,6 +1549,14 @@ export class RetroPage implements OnInit, OnDestroy {
     const idx = PHASES.findIndex((p) => p.key === key);
     return idx >= 0 && cur > idx;
   }
+}
+
+function parsePresenterCardId(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || !('presenterCardId' in payload)) {
+    return null;
+  }
+  const value = (payload as { presenterCardId: unknown }).presenterCardId;
+  return typeof value === 'string' && value ? value : null;
 }
 
 function applyAvatarChanged(

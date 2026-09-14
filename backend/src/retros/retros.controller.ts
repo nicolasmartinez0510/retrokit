@@ -30,6 +30,7 @@ import {
   JoinRetroDto,
   RotiDto,
   SetCommentsReadyDto,
+  SetPresenterDto,
   TimerAddDto,
   TimerDto,
   UpdateCardDto,
@@ -104,6 +105,16 @@ export class RetrosController {
     @Body() dto: AdvancePhaseDto,
   ) {
     return this.retros.advancePhase(user, id, dto.status);
+  }
+
+  @Post(':id/presenter')
+  @UseGuards(JwtAuthGuard)
+  setPresenter(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: SetPresenterDto,
+  ) {
+    return this.retros.setPresenter(user, id, dto.cardId);
   }
 
   @Patch(':id/me/ready')

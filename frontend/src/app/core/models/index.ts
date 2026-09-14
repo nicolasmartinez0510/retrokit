@@ -287,6 +287,7 @@ export interface RetroBoard {
   timerPausedRemaining?: number | null;
   backgroundColor?: string | null;
   backgroundImageUrl?: string | null;
+  presenterCardId?: string | null;
   createdAt: string;
   closedAt?: string | null;
   columns: RetroColumn[];
