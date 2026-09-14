@@ -130,6 +130,7 @@ import { UserAvatarComponent } from './shared/user-avatar.component';
           <p>
             <app-user-avatar
               [avatarId]="request.user.avatarId"
+              [ownerId]="request.user.id"
               [seed]="request.user.id"
               [name]="request.user.name"
               size="sm"

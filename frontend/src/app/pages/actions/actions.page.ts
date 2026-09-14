@@ -57,6 +57,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                   <span class="badge">
                     <app-user-avatar
                       [avatarId]="item.owner.avatarId"
+                      [ownerId]="item.owner.id"
                       [seed]="item.owner.id"
                       [name]="item.owner.name"
                       size="sm"

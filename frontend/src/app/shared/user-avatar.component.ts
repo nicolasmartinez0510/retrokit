@@ -1,4 +1,5 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
+import { AuthService } from '../core/auth.service';
 import { avatarSrc, resolveAvatarId } from '../core/avatars';
 
 @Component({
@@ -32,7 +33,11 @@ import { avatarSrc, resolveAvatarId } from '../core/avatars';
   },
 })
 export class UserAvatarComponent {
+  private readonly auth = inject(AuthService);
+
   avatarId = input<string | null | undefined>(null);
+  /** When this is the signed-in user, prefer the live profile avatar. */
+  ownerId = input<string | null | undefined>(null);
   seed = input('');
   name = input('');
   size = input<'sm' | 'md' | 'lg' | 'xl' | 'chip'>('md');
@@ -46,9 +51,13 @@ export class UserAvatarComponent {
     return 32;
   });
 
-  readonly src = computed(() =>
-    avatarSrc(resolveAvatarId(this.avatarId(), this.seed() || this.name())),
-  );
+  readonly src = computed(() => {
+    const me = this.auth.user();
+    const ownerId = this.ownerId();
+    const live =
+      ownerId && me?.id === ownerId && me.avatarId ? me.avatarId : this.avatarId();
+    return avatarSrc(resolveAvatarId(live, this.seed() || this.name()));
+  });
 
   readonly alt = computed(() => this.name() || 'Avatar');
 }

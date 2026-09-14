@@ -1,8 +1,9 @@
-import { Component, HostListener, OnInit, effect, inject, signal, untracked } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { parseAvatarChanged } from '../../core/avatars';
 import { JoinRequestService } from '../../core/join-request.service';
 import {
   PHASE_LABELS,
@@ -11,6 +12,7 @@ import {
   TeamMember,
   Template,
 } from '../../core/models';
+import { SocketService } from '../../core/socket.service';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
@@ -83,6 +85,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                 <div class="member-info">
                   <app-user-avatar
                     [avatarId]="req.user.avatarId"
+                    [ownerId]="req.user.id"
                     [seed]="req.user.id"
                     [name]="req.user.name"
                     size="sm"
@@ -117,6 +120,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                 <div class="member-info">
                   <app-user-avatar
                     [avatarId]="m.user.avatarId"
+                    [ownerId]="m.user.id"
                     [seed]="m.user.id"
                     [name]="m.user.name"
                     size="sm"
@@ -537,10 +541,11 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
     }
   `,
 })
-export class TeamPage implements OnInit {
+export class TeamPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly joinRequests = inject(JoinRequestService);
+  private readonly sockets = inject(SocketService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -727,6 +732,8 @@ export class TeamPage implements OnInit {
 
   ngOnInit() {
     this.reloadTeam();
+    this.sockets.connect();
+    this.sockets.on('avatar-changed', this.onAvatarChanged);
     this.api.listTemplates().subscribe((t) => {
       this.templates.set(t);
       if (t[0]) {
@@ -735,6 +742,34 @@ export class TeamPage implements OnInit {
       }
     });
   }
+
+  ngOnDestroy() {
+    this.sockets.off('avatar-changed', this.onAvatarChanged);
+    if (this.inviteCopyTimer) clearTimeout(this.inviteCopyTimer);
+  }
+
+  private readonly onAvatarChanged = (payload: unknown) => {
+    const event = parseAvatarChanged(payload);
+    const team = this.team();
+    if (!event || !team) return;
+    const members = team.members.map((m) =>
+      m.user.id === event.userId
+        ? { ...m, user: { ...m.user, avatarId: event.avatarId } }
+        : m,
+    );
+    const joinRequests = (team.joinRequests ?? []).map((req) =>
+      req.user.id === event.userId
+        ? { ...req, user: { ...req.user, avatarId: event.avatarId } }
+        : req,
+    );
+    if (
+      members.every((m, i) => m === team.members[i]) &&
+      joinRequests.every((req, i) => req === (team.joinRequests ?? [])[i])
+    ) {
+      return;
+    }
+    this.team.set({ ...team, members, joinRequests });
+  };
 
   reloadTeam() {
     const id = this.route.snapshot.paramMap.get('id');

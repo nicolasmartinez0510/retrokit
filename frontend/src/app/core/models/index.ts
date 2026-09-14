@@ -181,6 +181,7 @@ export interface CommentProgressParticipant {
   participantId: string;
   name: string;
   avatarId?: string | null;
+  ownerId?: string | null;
   commentCount: number;
   isReady: boolean;
 }
@@ -196,6 +197,7 @@ export interface VoteProgressParticipant {
   participantId: string;
   name: string;
   avatarId?: string | null;
+  ownerId?: string | null;
   voteCount: number;
   isReady: boolean;
 }

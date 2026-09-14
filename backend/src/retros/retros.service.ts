@@ -1018,6 +1018,7 @@ export class RetrosService {
         participantId: p.id,
         name,
         avatarId: resolveParticipantAvatar(p),
+        ownerId: p.user?.id ?? p.id,
         commentCount,
         isReady: p.commentsReady,
       };
@@ -1034,6 +1035,7 @@ export class RetrosService {
         participantId: p.id,
         name,
         avatarId: resolveParticipantAvatar(p),
+        ownerId: p.user?.id ?? p.id,
         voteCount,
         isReady: p.votesReady,
       };

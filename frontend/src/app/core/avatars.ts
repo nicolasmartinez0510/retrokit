@@ -59,3 +59,33 @@ export function randomAvatarId(): AvatarId {
   const index = Math.floor(Math.random() * AVATAR_IDS.length);
   return AVATAR_IDS[index];
 }
+
+export type AvatarChangedPayload = {
+  userId: string;
+  avatarId: string;
+  participants: { id: string; retroId: string }[];
+};
+
+export function parseAvatarChanged(payload: unknown): AvatarChangedPayload | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const value = payload as Record<string, unknown>;
+  const userId = value['userId'];
+  const avatarId = value['avatarId'];
+  if (typeof userId !== 'string' || typeof avatarId !== 'string' || !isAvatarId(avatarId)) {
+    return null;
+  }
+  const rawParticipants = value['participants'];
+  const participants = Array.isArray(rawParticipants)
+    ? rawParticipants.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const row = item as Record<string, unknown>;
+        const id = row['id'];
+        const retroId = row['retroId'];
+        if (typeof id !== 'string' || typeof retroId !== 'string') {
+          return [];
+        }
+        return [{ id, retroId }];
+      })
+    : [];
+  return { userId, avatarId, participants };
+}

@@ -92,6 +92,7 @@
             <span class="badge">
               <app-user-avatar
                 [avatarId]="p.avatarId ?? p.user?.avatarId"
+                [ownerId]="participantOwnerId(p)"
                 [seed]="p.id"
                 [name]="participantDisplayName(p)"
                 size="sm"
@@ -198,6 +199,7 @@
                   <span class="person" [class.done]="p.isReady" [class.pending]="!p.isReady">
                     <app-user-avatar
                       [avatarId]="p.avatarId"
+                      [ownerId]="p.ownerId"
                       [seed]="p.participantId"
                       [name]="p.name"
                       size="sm"
@@ -242,6 +244,7 @@
                   <span class="person" [class.done]="p.isReady" [class.pending]="!p.isReady">
                     <app-user-avatar
                       [avatarId]="p.avatarId"
+                      [ownerId]="p.ownerId"
                       [seed]="p.participantId"
                       [name]="p.name"
                       size="sm"
@@ -386,6 +389,7 @@
                         @if (card.authorAvatarId) {
                           <app-user-avatar
                             [avatarId]="card.authorAvatarId"
+                            [ownerId]="cardAuthorOwnerId(card)"
                             [name]="card.authorName"
                             size="sm"
                           />
@@ -508,6 +512,7 @@
                 <span class="badge">
                   <app-user-avatar
                     [avatarId]="a.owner.avatarId"
+                    [ownerId]="a.owner.id"
                     [seed]="a.owner.id"
                     [name]="a.owner.name"
                     size="sm"

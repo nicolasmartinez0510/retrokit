@@ -4,11 +4,13 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { TeamRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { avatarForSeed, isAvatarId, parseAvatarId } from '../common/avatars';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeEventsService } from '../realtime/realtime-events.service';
 import { LoginDto, RegisterDto, UpdateMeDto } from './dto/auth.dto';
 
 @Injectable()
@@ -16,6 +18,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -103,7 +106,46 @@ export class AuthService {
       },
     });
     const isFacilitator = await this.isFacilitatorAnywhere(userId);
+    await this.broadcastAvatarChanged(userId, dto.avatarId);
     return { ...updated, isFacilitator };
+  }
+
+  private async broadcastAvatarChanged(userId: string, avatarId: string) {
+    const [participants, memberships] = await Promise.all([
+      this.prisma.participant.findMany({
+        where: { userId, isGuest: false },
+        select: { id: true, retroId: true },
+      }),
+      this.prisma.teamMember.findMany({
+        where: { userId },
+        select: { teamId: true },
+      }),
+    ]);
+    const teamIds = memberships.map((m) => m.teamId);
+    const teammates =
+      teamIds.length === 0
+        ? []
+        : await this.prisma.teamMember.findMany({
+            where: { teamId: { in: teamIds } },
+            select: { userId: true },
+          });
+    const payload = {
+      userId,
+      avatarId,
+      participants: participants.map((p) => ({
+        id: p.id,
+        retroId: p.retroId,
+      })),
+    };
+    const events = this.moduleRef.get(RealtimeEventsService, { strict: false });
+    for (const p of participants) {
+      events.emit(p.retroId, 'avatar-changed', payload);
+    }
+    events.emitToUsers(
+      teammates.map((m) => m.userId),
+      'avatar-changed',
+      payload,
+    );
   }
 
   async isFacilitatorAnywhere(userId: string): Promise<boolean> {

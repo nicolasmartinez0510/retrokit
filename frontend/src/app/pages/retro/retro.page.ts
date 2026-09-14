@@ -11,9 +11,11 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { parseAvatarChanged } from '../../core/avatars';
 import { httpErrorMessage } from '../../core/http-error';
 import {
   Card,
+  Participant,
   PHASES,
   RetroBoard,
   RetroStatus,
@@ -195,6 +197,7 @@ export class RetroPage implements OnInit, OnDestroy {
     }
     this.sockets.on('retro-deleted', this.onRetroDeleted);
     this.sockets.on('confetti', this.onConfetti);
+    this.sockets.on('avatar-changed', this.onAvatarChanged);
   }
 
   ngOnDestroy() {
@@ -205,6 +208,7 @@ export class RetroPage implements OnInit, OnDestroy {
     }
     this.sockets.off('retro-deleted', this.onRetroDeleted);
     this.sockets.off('confetti', this.onConfetti);
+    this.sockets.off('avatar-changed', this.onAvatarChanged);
     this.clearAllDraftPreviews();
     this.clearEditImagePreview();
     this.sockets.leaveRetro(this.retroId);
@@ -357,6 +361,26 @@ export class RetroPage implements OnInit, OnDestroy {
   }): string {
     return p.guestName ?? p.user?.name ?? (p.isGuest ? 'Invitado' : 'Participante');
   }
+
+  participantOwnerId(p: Participant): string {
+    return p.user?.id ?? p.userId ?? p.id;
+  }
+
+  cardAuthorOwnerId(card: Card): string | undefined {
+    if (!card.authorAvatarId) return undefined;
+    const author =
+      card.author ??
+      this.retro()?.participants.find((p) => p.id === card.authorId);
+    return author ? this.participantOwnerId(author) : undefined;
+  }
+
+  private readonly onAvatarChanged = (payload: unknown) => {
+    const event = parseAvatarChanged(payload);
+    const board = this.retro();
+    if (!event || !board) return;
+    const next = applyAvatarChanged(board, event);
+    if (next !== board) this.retro.set(next);
+  };
 
   cardsForColumn(columnId: string): Card[] {
     const r = this.retro();
@@ -919,6 +943,76 @@ export class RetroPage implements OnInit, OnDestroy {
     const idx = PHASES.findIndex((p) => p.key === key);
     return idx >= 0 && cur > idx;
   }
+}
+
+function applyAvatarChanged(
+  board: RetroBoard,
+  event: { userId: string; avatarId: string; participants: { id: string; retroId: string }[] },
+): RetroBoard {
+  const participantIds = new Set(
+    event.participants
+      .filter((p) => p.retroId === board.id)
+      .map((p) => p.id),
+  );
+  const matches = (p: Participant) =>
+    p.user?.id === event.userId ||
+    p.userId === event.userId ||
+    participantIds.has(p.id);
+  const matchedIds = new Set(
+    board.participants.filter(matches).map((p) => p.id),
+  );
+  if (
+    matchedIds.size === 0 &&
+    !board.actionItems.some((a) => a.owner?.id === event.userId)
+  ) {
+    return board;
+  }
+
+  return {
+    ...board,
+    participants: board.participants.map((p) =>
+      matches(p)
+        ? {
+            ...p,
+            avatarId: event.avatarId,
+            user: p.user ? { ...p.user, avatarId: event.avatarId } : p.user,
+          }
+        : p,
+    ),
+    cards: board.cards.map((c) => {
+      if (!c.authorAvatarId) return c;
+      const authorId = c.author?.id ?? c.authorId;
+      if (!matchedIds.has(authorId) && c.author?.user?.id !== event.userId) {
+        return c;
+      }
+      return { ...c, authorAvatarId: event.avatarId };
+    }),
+    commentProgress: board.commentProgress
+      ? {
+          ...board.commentProgress,
+          participants: board.commentProgress.participants.map((p) =>
+            matchedIds.has(p.participantId)
+              ? { ...p, avatarId: event.avatarId }
+              : p,
+          ),
+        }
+      : board.commentProgress,
+    voteProgress: board.voteProgress
+      ? {
+          ...board.voteProgress,
+          participants: board.voteProgress.participants.map((p) =>
+            matchedIds.has(p.participantId)
+              ? { ...p, avatarId: event.avatarId }
+              : p,
+          ),
+        }
+      : board.voteProgress,
+    actionItems: board.actionItems.map((a) =>
+      a.owner?.id === event.userId
+        ? { ...a, owner: { ...a.owner, avatarId: event.avatarId } }
+        : a,
+    ),
+  };
 }
 
 function parseNotTeamMember(error: unknown): RetroAccessDenied | null {

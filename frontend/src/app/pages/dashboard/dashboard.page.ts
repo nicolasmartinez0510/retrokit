@@ -119,6 +119,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                     @if (a.owner) {
                       <app-user-avatar
                         [avatarId]="a.owner.avatarId"
+                        [ownerId]="a.owner.id"
                         [seed]="a.owner.id"
                         [name]="a.owner.name"
                         size="sm"

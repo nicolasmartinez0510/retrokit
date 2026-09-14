@@ -20,6 +20,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
           <div class="member-preview">
             <app-user-avatar
               [avatarId]="auth.user()?.avatarId"
+              [ownerId]="auth.user()?.id"
               [seed]="auth.user()?.id || ''"
               [name]="auth.user()?.name || ''"
               size="lg"
