@@ -11,6 +11,7 @@ import { userPublicSelect } from '../common/avatars';
 import { CreateTeamDto, JoinTeamDto, UpdateTeamDto } from './dto/teams.dto';
 
 const joinRequestUserSelect = userPublicSelect;
+const MAX_FAVORITE_TEAMS = 3;
 
 @Injectable()
 export class TeamsService {
@@ -54,18 +55,23 @@ export class TeamsService {
         },
         members: {
           where: { userId },
-          select: { role: true },
+          select: { role: true, favoritedAt: true },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     return teams.map((t) => {
-      const role = t.members[0]?.role;
-      const { _count, ...rest } = t;
+      const membership = t.members[0];
+      const role = membership?.role;
+      const favoritedAt = membership?.favoritedAt ?? null;
+      const { _count, members, ...rest } = t;
       return {
         ...rest,
         role,
+        favorited: !!favoritedAt,
+        favoritedAt,
+        members: members.map(({ role: memberRole }) => ({ role: memberRole })),
         _count: {
           members: _count.members,
           retrospectives: _count.retrospectives,
@@ -98,15 +104,58 @@ export class TeamsService {
       },
     });
     if (!team) throw new NotFoundException('Team not found');
+    const favorited = !!membership.favoritedAt;
+    const members = team.members.map(({ favoritedAt: _favoritedAt, ...member }) => member);
     if (membership.role !== TeamRole.facilitator) {
-      return { ...team, joinRequests: [] };
+      return { ...team, members, favorited, joinRequests: [] };
     }
     const joinRequests = await this.prisma.teamJoinRequest.findMany({
       where: { teamId },
       include: { user: { select: joinRequestUserSelect } },
       orderBy: { createdAt: 'asc' },
     });
-    return { ...team, joinRequests };
+    return { ...team, members, favorited, joinRequests };
+  }
+
+  async setFavorite(userId: string, teamId: string, favorited: boolean) {
+    const membership = await this.assertMember(userId, teamId);
+    if (favorited) {
+      if (!membership.favoritedAt) {
+        const count = await this.prisma.teamMember.count({
+          where: { userId, favoritedAt: { not: null } },
+        });
+        if (count >= MAX_FAVORITE_TEAMS) {
+          throw new BadRequestException('Podés destacar hasta 3 equipos');
+        }
+        await this.prisma.teamMember.update({
+          where: { teamId_userId: { teamId, userId } },
+          data: { favoritedAt: new Date() },
+        });
+      }
+    } else if (membership.favoritedAt) {
+      await this.prisma.teamMember.update({
+        where: { teamId_userId: { teamId, userId } },
+        data: { favoritedAt: null },
+      });
+    }
+
+    const [team, updated] = await Promise.all([
+      this.prisma.team.findUnique({
+        where: { id: teamId },
+        select: { id: true, name: true },
+      }),
+      this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId, userId } },
+        select: { favoritedAt: true },
+      }),
+    ]);
+    if (!team) throw new NotFoundException('Team not found');
+    return {
+      id: team.id,
+      name: team.name,
+      favorited: !!updated?.favoritedAt,
+      favoritedAt: updated?.favoritedAt ?? null,
+    };
   }
 
   async update(userId: string, teamId: string, dto: UpdateTeamDto) {

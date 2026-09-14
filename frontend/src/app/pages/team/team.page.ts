@@ -4,6 +4,8 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { parseAvatarChanged } from '../../core/avatars';
+import { FavoriteTeamsService } from '../../core/favorite-teams.service';
+import { httpErrorMessage } from '../../core/http-error';
 import { JoinRequestService } from '../../core/join-request.service';
 import {
   PHASE_LABELS,
@@ -13,6 +15,7 @@ import {
   Template,
 } from '../../core/models';
 import { SocketService } from '../../core/socket.service';
+import { ToastService } from '../../core/toast.service';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
@@ -30,6 +33,24 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
             </p>
           </div>
           <div class="header-actions">
+            <button
+              type="button"
+              class="btn-secondary star-btn"
+              [class.on]="t.favorited"
+              [attr.aria-pressed]="!!t.favorited"
+              [attr.aria-label]="
+                t.favorited ? 'Quitar de destacados' : 'Destacar equipo'
+              "
+              [title]="t.favorited ? 'Quitar de destacados' : 'Destacar equipo'"
+              (click)="toggleFavorite()"
+            >
+              <svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
+                />
+              </svg>
+              {{ t.favorited ? 'Destacado' : 'Destacar' }}
+            </button>
             <button
               type="button"
               class="btn-primary"
@@ -347,6 +368,20 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       gap: 0.65rem;
       align-items: center;
     }
+    .star-btn .star-icon {
+      width: 1.05em;
+      height: 1.05em;
+      display: block;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linejoin: round;
+    }
+    .star-btn.on .star-icon {
+      fill: currentColor;
+      stroke: none;
+    }
     .plus-icon {
       width: 1.05em;
       height: 1.05em;
@@ -544,8 +579,10 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
 export class TeamPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+  private readonly favorites = inject(FavoriteTeamsService);
   private readonly joinRequests = inject(JoinRequestService);
   private readonly sockets = inject(SocketService);
+  private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -608,6 +645,20 @@ export class TeamPage implements OnInit, OnDestroy {
 
   roleLabel(role: string) {
     return role === 'facilitator' ? 'Facilitador' : 'Miembro';
+  }
+
+  toggleFavorite() {
+    const team = this.team();
+    if (!team) return;
+    this.favorites.setFavorite(team.id, !team.favorited, team.name).subscribe({
+      next: (res) => {
+        const current = this.team();
+        if (!current || current.id !== team.id) return;
+        this.team.set({ ...current, favorited: res.favorited });
+      },
+      error: (e) =>
+        this.toast.error(httpErrorMessage(e, 'No se pudo destacar el equipo')),
+    });
   }
 
   removeMember(member: TeamMember) {

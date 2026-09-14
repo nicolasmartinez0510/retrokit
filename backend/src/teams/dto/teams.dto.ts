@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateTeamDto {
   @IsString()
@@ -23,4 +23,9 @@ export class RequestTeamJoinDto {
   @IsString()
   @MinLength(1)
   retroId!: string;
+}
+
+export class SetTeamFavoriteDto {
+  @IsBoolean()
+  favorited!: boolean;
 }

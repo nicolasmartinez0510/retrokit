@@ -15,6 +15,7 @@ import {
   CreateTeamDto,
   JoinTeamDto,
   RequestTeamJoinDto,
+  SetTeamFavoriteDto,
   UpdateTeamDto,
 } from './dto/teams.dto';
 import { TeamsService } from './teams.service';
@@ -63,6 +64,15 @@ export class TeamsController {
     @Param('requestId') requestId: string,
   ) {
     return this.teams.rejectJoinRequest(user.sub, id, requestId);
+  }
+
+  @Patch(':id/favorite')
+  setFavorite(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: SetTeamFavoriteDto,
+  ) {
+    return this.teams.setFavorite(user.sub, id, dto.favorited);
   }
 
   @Get(':id')

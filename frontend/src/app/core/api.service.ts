@@ -37,6 +37,15 @@ export class ApiService {
     return this.http.get<TeamDetail>(`${this.base}/teams/${id}`);
   }
 
+  setTeamFavorite(id: string, favorited: boolean) {
+    return this.http.patch<{
+      id: string;
+      name: string;
+      favorited: boolean;
+      favoritedAt: string | null;
+    }>(`${this.base}/teams/${id}/favorite`, { favorited });
+  }
+
   removeTeamMember(teamId: string, userId: string) {
     return this.http.delete<{ removed: boolean; accountDeleted: boolean }>(
       `${this.base}/teams/${teamId}/members/${userId}`,

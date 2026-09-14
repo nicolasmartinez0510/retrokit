@@ -5,8 +5,11 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { FavoriteTeamsService } from '../../core/favorite-teams.service';
+import { httpErrorMessage } from '../../core/http-error';
 import { JoinRequestService } from '../../core/join-request.service';
 import { ActionItem, PHASE_LABELS, TeamSummary } from '../../core/models';
+import { ToastService } from '../../core/toast.service';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
@@ -65,7 +68,28 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         <div class="team-list">
           @for (team of teams(); track team.id) {
             <a class="card team-card" [routerLink]="['/teams', team.id]">
-              <h3>{{ team.name }}</h3>
+              <div class="team-card-top">
+                <h3>{{ team.name }}</h3>
+                <button
+                  type="button"
+                  class="star-btn"
+                  [class.on]="team.favorited"
+                  [attr.aria-pressed]="!!team.favorited"
+                  [attr.aria-label]="
+                    team.favorited ? 'Quitar de destacados' : 'Destacar equipo'
+                  "
+                  [title]="
+                    team.favorited ? 'Quitar de destacados' : 'Destacar equipo'
+                  "
+                  (click)="toggleFavorite($event, team)"
+                >
+                  <svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
+                    />
+                  </svg>
+                </button>
+              </div>
               <p>
                 {{ team._count?.members || 0 }} miembros ·
                 {{ team._count?.retrospectives || 0 }} retros
@@ -200,6 +224,45 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         font-size: 0.9rem;
       }
     }
+    .team-card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .team-card-top h3 {
+      min-width: 0;
+    }
+    .star-btn {
+      flex-shrink: 0;
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+    .star-btn:hover,
+    .star-btn.on {
+      color: var(--color-brand);
+    }
+    .star-icon {
+      width: 1.15em;
+      height: 1.15em;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linejoin: round;
+    }
+    .star-btn.on .star-icon {
+      fill: currentColor;
+      stroke: none;
+    }
     .team-card-badges {
       display: flex;
       flex-wrap: wrap;
@@ -272,7 +335,9 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
 export class DashboardPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+  private readonly favorites = inject(FavoriteTeamsService);
   private readonly joinRequests = inject(JoinRequestService);
+  private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
 
   teams = signal<TeamSummary[]>([]);
@@ -316,10 +381,34 @@ export class DashboardPage implements OnInit {
     return PHASE_LABELS[status as keyof typeof PHASE_LABELS] || status;
   }
 
+  toggleFavorite(event: Event, team: TeamSummary) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.favorites.setFavorite(team.id, !team.favorited, team.name).subscribe({
+      next: (res) => {
+        this.teams.update((list) =>
+          sortTeams(
+            list.map((item) =>
+              item.id === team.id
+                ? {
+                    ...item,
+                    favorited: res.favorited,
+                    favoritedAt: res.favoritedAt,
+                  }
+                : item,
+            ),
+          ),
+        );
+      },
+      error: (e) =>
+        this.toast.error(httpErrorMessage(e, 'No se pudo destacar el equipo')),
+    });
+  }
+
   reload() {
     this.api.listTeams().subscribe({
       next: (teams) => {
-        this.teams.set(teams);
+        this.teams.set(sortTeams(teams));
         if (!teams.length) {
           this.teamFormsOpen.set(true);
           this.recentRetros.set([]);
@@ -395,4 +484,17 @@ export class DashboardPage implements OnInit {
       error: (e) => this.error.set(e?.error?.message || 'Código inválido'),
     });
   }
+}
+
+function sortTeams(teams: TeamSummary[]): TeamSummary[] {
+  return [...teams].sort((a, b) => {
+    if (a.favorited && !b.favorited) return -1;
+    if (!a.favorited && b.favorited) return 1;
+    if (a.favorited && b.favorited) {
+      const aAt = a.favoritedAt ? new Date(a.favoritedAt).getTime() : 0;
+      const bAt = b.favoritedAt ? new Date(b.favoritedAt).getTime() : 0;
+      return aAt - bAt;
+    }
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
 }

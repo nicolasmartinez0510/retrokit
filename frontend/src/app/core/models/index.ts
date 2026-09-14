@@ -65,6 +65,8 @@ export interface TeamSummary {
   members?: { role: TeamRole }[];
   role?: TeamRole;
   pendingJoinCount?: number;
+  favorited?: boolean;
+  favoritedAt?: string | null;
 }
 
 export interface TeamMember {
@@ -97,6 +99,7 @@ export interface TeamDetail {
   members: TeamMember[];
   retrospectives: RetroSummary[];
   joinRequests?: TeamJoinRequest[];
+  favorited?: boolean;
 }
 
 export interface TemplateColumn {

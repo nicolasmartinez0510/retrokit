@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/auth.service';
+import { FavoriteTeamsService } from './core/favorite-teams.service';
 import { JoinRequestService } from './core/join-request.service';
 import { ThemeService } from './core/theme.service';
 import { ToastService } from './core/toast.service';
@@ -47,6 +48,23 @@ import { UserAvatarComponent } from './shared/user-avatar.component';
                 />
               </svg>
               <span>Plantillas</span>
+            </a>
+          }
+          @for (team of favoriteTeams.favorites(); track team.id) {
+            <a
+              [routerLink]="['/teams', team.id]"
+              routerLinkActive="active"
+              [routerLinkActiveOptions]="{ exact: true }"
+              class="nav-link team-fav"
+              [attr.aria-label]="team.name"
+              [title]="team.name"
+            >
+              <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M4.5 6.375a4.125 4.125 0 1 1 8.25 0 4.125 4.125 0 0 1-8.25 0ZM14.25 8.625a3.375 3.375 0 1 1 6.75 0 3.375 3.375 0 0 1-6.75 0ZM1.5 19.125a7.125 7.125 0 0 1 14.25 0v.003l-.001.119a.75.75 0 0 1-.363.63 13.067 13.067 0 0 1-6.761 1.873c-2.472 0-4.786-.684-6.76-1.873a.75.75 0 0 1-.364-.63l-.001-.122ZM17.25 19.128l-.001.144a2.25 2.25 0 0 1-.233.96 10.088 10.088 0 0 0 5.06-1.31.75.75 0 0 0 .42-.643 4.875 4.875 0 0 0-6.957-4.611 8.586 8.586 0 0 1 2.71 2.25c.242.32.405.68.48 1.07a2.25 2.25 0 0 1-.016.992 2.268 2.268 0 0 1-.241.802Z"
+                />
+              </svg>
+              <span>{{ team.name }}</span>
             </a>
           }
         }
@@ -340,12 +358,22 @@ import { UserAvatarComponent } from './shared/user-avatar.component';
       justify-content: flex-end;
       gap: 0.65rem;
     }
+    .nav-link.team-fav span {
+      display: inline-block;
+      max-width: 10ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     @media (max-width: 720px) {
-      .nav-link:not(.text-only) span {
+      .nav-link:not(.text-only):not(.team-fav) span {
         display: none;
       }
       .nav-link:not(.text-only) {
         padding: 0.4rem;
+      }
+      .nav-link.team-fav {
+        padding: 0.4rem 0.5rem;
       }
       .user-name {
         max-width: 6.5rem;
@@ -358,4 +386,5 @@ export class App {
   readonly theme = inject(ThemeService);
   readonly toast = inject(ToastService);
   readonly joinRequests = inject(JoinRequestService);
+  readonly favoriteTeams = inject(FavoriteTeamsService);
 }
