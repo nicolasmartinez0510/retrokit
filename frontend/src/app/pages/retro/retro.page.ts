@@ -43,7 +43,10 @@ import {
   fireConfettiBurst,
   prefersReducedMotion,
 } from '../../core/confetti';
-import { SocketService } from '../../core/socket.service';
+import {
+  SocketPresence,
+  SocketService,
+} from '../../core/socket.service';
 import {
   armTimerChime,
   disarmTimerChime,
@@ -56,6 +59,15 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 type SortMode = 'most' | 'least' | 'original';
 type VoteFilter = 'all' | 'voted';
+
+export type PresenceUser = {
+  participantId: string;
+  name: string;
+  avatarId?: string | null;
+  userId?: string | null;
+};
+
+const MAX_VISIBLE_PRESENCE = 5;
 
 type BoardCard = Card & {
   isGroup?: boolean;
@@ -147,10 +159,25 @@ export class RetroPage implements OnInit, OnDestroy {
   ] as const;
 
   retro = signal<RetroBoard | null>(null);
+  presence = signal<PresenceUser[]>([]);
   error = signal('');
   loadError = signal('');
   accessDenied = signal<RetroAccessDenied | null>(null);
   requestingJoin = signal(false);
+
+  visiblePresence = computed(() =>
+    this.presence().slice(0, MAX_VISIBLE_PRESENCE),
+  );
+  hiddenPresenceCount = computed(() => {
+    const extra = this.presence().length - MAX_VISIBLE_PRESENCE;
+    return extra > 0 ? extra : 0;
+  });
+  hiddenPresenceNames = computed(() =>
+    this.presence()
+      .slice(MAX_VISIBLE_PRESENCE)
+      .map((p) => p.name)
+      .join(', '),
+  );
   draft: Record<string, string> = {};
   draftImage: Record<string, File | null> = {};
   draftPreview: Record<string, string | null> = {};
@@ -317,6 +344,7 @@ export class RetroPage implements OnInit, OnDestroy {
     this.sockets.on('confetti', this.onConfetti);
     this.sockets.on('avatar-changed', this.onAvatarChanged);
     this.sockets.on('presenter-changed', this.onPresenterChanged);
+    this.sockets.on('presence-updated', this.onPresenceUpdated);
   }
 
   ngOnDestroy() {
@@ -330,6 +358,7 @@ export class RetroPage implements OnInit, OnDestroy {
     this.sockets.off('confetti', this.onConfetti);
     this.sockets.off('avatar-changed', this.onAvatarChanged);
     this.sockets.off('presenter-changed', this.onPresenterChanged);
+    this.sockets.off('presence-updated', this.onPresenceUpdated);
     this.clearAllDraftPreviews();
     this.clearEditImagePreview();
     this.sockets.leaveRetro(this.retroId);
@@ -377,6 +406,7 @@ export class RetroPage implements OnInit, OnDestroy {
         this.allowCrossColumnGrouping = !!r.allowCrossColumnGrouping;
         this.syncTimer(r.timerEndsAt);
         this.maybeShowJoinModal(r);
+        this.syncPresenceIdentity(r);
       },
       error: (e) => {
         const denied = parseNotTeamMember(e);
@@ -390,6 +420,35 @@ export class RetroPage implements OnInit, OnDestroy {
       },
     });
   }
+
+  presenceOwnerId(p: PresenceUser): string {
+    return p.userId ?? p.participantId;
+  }
+
+  private syncPresenceIdentity(r: RetroBoard) {
+    const participantId = r.me?.participantId;
+    if (!participantId) {
+      this.sockets.joinRetro(r.id);
+      return;
+    }
+    const me = r.participants.find((p) => p.id === participantId);
+    const authUser = this.auth.user();
+    const name = me
+      ? this.participantDisplayName(me)
+      : authUser?.name || 'Participante';
+    const avatarId =
+      me?.avatarId ?? me?.user?.avatarId ?? authUser?.avatarId ?? null;
+    const presence: SocketPresence = {
+      participantId,
+      name,
+      avatarId,
+    };
+    this.sockets.joinRetro(r.id, presence);
+  }
+
+  private readonly onPresenceUpdated = (payload: unknown) => {
+    this.presence.set(parsePresenceUpdated(payload));
+  };
 
   requestJoin() {
     if (!this.retroId || this.requestingJoin()) return;
@@ -506,6 +565,18 @@ export class RetroPage implements OnInit, OnDestroy {
     if (!event || !board) return;
     const next = applyAvatarChanged(board, event);
     if (next !== board) this.retro.set(next);
+    const participantIds = new Set(
+      event.participants
+        .filter((p) => p.retroId === board.id)
+        .map((p) => p.id),
+    );
+    this.presence.update((list) =>
+      list.map((p) =>
+        p.userId === event.userId || participantIds.has(p.participantId)
+          ? { ...p, avatarId: event.avatarId }
+          : p,
+      ),
+    );
   };
 
   private readonly onPresenterChanged = (payload: unknown) => {
@@ -1788,6 +1859,33 @@ function parsePresenterCardId(payload: unknown): string | null {
   }
   const value = (payload as { presenterCardId: unknown }).presenterCardId;
   return typeof value === 'string' && value ? value : null;
+}
+
+function parsePresenceUpdated(payload: unknown): PresenceUser[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const raw = (payload as { participants?: unknown }).participants;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const row = item as Record<string, unknown>;
+    const participantId = row['participantId'];
+    if (typeof participantId !== 'string' || !participantId.trim()) return [];
+    const name =
+      typeof row['name'] === 'string' && row['name'].trim()
+        ? row['name'].trim()
+        : 'Participante';
+    const avatarId =
+      typeof row['avatarId'] === 'string' || row['avatarId'] === null
+        ? (row['avatarId'] as string | null)
+        : undefined;
+    const userId =
+      typeof row['userId'] === 'string'
+        ? row['userId']
+        : row['userId'] === null
+          ? null
+          : undefined;
+    return [{ participantId, name, avatarId, userId }];
+  });
 }
 
 function applyAvatarChanged(

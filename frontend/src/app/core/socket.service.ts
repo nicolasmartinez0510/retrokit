@@ -3,12 +3,19 @@ import { io, Socket } from 'socket.io-client';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
 
+export type SocketPresence = {
+  participantId: string;
+  name: string;
+  avatarId?: string | null;
+};
+
 @Injectable({ providedIn: 'root' })
 export class SocketService {
   private readonly auth = inject(AuthService);
   private socket: Socket | null = null;
   private connectedToken: string | null | undefined = undefined;
   private joinedRetroId: string | null = null;
+  private joinedPresence: SocketPresence | null = null;
 
   connect() {
     const token = this.auth.token();
@@ -25,19 +32,21 @@ export class SocketService {
     });
     this.socket.on('connect', () => {
       if (this.joinedRetroId) {
-        this.socket?.emit('join-retro', { retroId: this.joinedRetroId });
+        this.socket?.emit('join-retro', this.joinPayload(this.joinedRetroId));
       }
     });
     return this.socket;
   }
 
-  joinRetro(retroId: string) {
+  joinRetro(retroId: string, presence?: SocketPresence | null) {
     const s = this.connect();
     if (this.joinedRetroId && this.joinedRetroId !== retroId) {
       s.emit('leave-retro', { retroId: this.joinedRetroId });
+      this.joinedPresence = null;
     }
     this.joinedRetroId = retroId;
-    s.emit('join-retro', { retroId });
+    if (presence) this.joinedPresence = presence;
+    s.emit('join-retro', this.joinPayload(retroId));
     return s;
   }
 
@@ -45,7 +54,10 @@ export class SocketService {
     const id = retroId ?? this.joinedRetroId;
     if (!id) return;
     this.socket?.emit('leave-retro', { retroId: id });
-    if (this.joinedRetroId === id) this.joinedRetroId = null;
+    if (this.joinedRetroId === id) {
+      this.joinedRetroId = null;
+      this.joinedPresence = null;
+    }
   }
 
   emit(event: string, payload?: unknown) {
@@ -63,8 +75,20 @@ export class SocketService {
 
   disconnect() {
     this.joinedRetroId = null;
+    this.joinedPresence = null;
     this.socket?.disconnect();
     this.socket = null;
     this.connectedToken = undefined;
+  }
+
+  private joinPayload(retroId: string) {
+    const presence = this.joinedPresence;
+    if (!presence) return { retroId };
+    return {
+      retroId,
+      participantId: presence.participantId,
+      name: presence.name,
+      avatarId: presence.avatarId ?? null,
+    };
   }
 }

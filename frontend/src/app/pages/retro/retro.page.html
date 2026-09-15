@@ -23,6 +23,24 @@
         }
       </div>
       <div class="header-actions">
+        @if (presence().length) {
+          <div class="presence-avatars" aria-label="Conectados">
+            @for (p of visiblePresence(); track p.participantId) {
+              <app-user-avatar
+                [avatarId]="p.avatarId"
+                [ownerId]="presenceOwnerId(p)"
+                [seed]="p.participantId"
+                [name]="p.name"
+                size="sm"
+              />
+            }
+            @if (hiddenPresenceCount(); as extra) {
+              <span class="presence-more" [title]="hiddenPresenceNames()">
+                +{{ extra }}
+              </span>
+            }
+          </div>
+        }
         @if (!isSpectator()) {
           <button
             type="button"
