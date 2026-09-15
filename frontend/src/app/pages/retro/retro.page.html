@@ -283,6 +283,17 @@
               </select>
             </div>
           </div>
+          <label class="check">
+            <input
+              type="checkbox"
+              [(ngModel)]="allowCrossColumnGrouping"
+              name="crossCol"
+            />
+            Permitir agrupar tarjetas entre columnas
+          </label>
+          <p class="field-hint">
+            Las columnas son temas distintos; activá esto solo si el equipo quiere mezclarlas.
+          </p>
           <div class="join-modal-actions row">
             <button type="button" class="btn-ghost btn-sm" (click)="showSettings = false">
               Cerrar
@@ -347,7 +358,7 @@
         @if (r.status === 'voting') {
           @if (isParticipant()) {
             <span class="meta-stat">
-              Tus votos: {{ r.me?.myVoteTotal || 0 }} / {{ r.votesPerParticipant }}
+              Tus votos: {{ usedVoteTotal() }} / {{ r.votesPerParticipant }}
             </span>
             <label class="ready-toggle" [class.locked]="readyLocked()">
               <input
@@ -364,7 +375,7 @@
             <div class="comment-progress" [class.all-done]="progress.allDone">
               <strong>
                 Listos: {{ progress.ready }} / {{ progress.total }}
-                · Votos: {{ progress.votesUsed }} / {{ progress.votesCapacity }}
+                · Votos: {{ progressVotesUsed() }} / {{ progress.votesCapacity }}
                 @if (progress.allDone) {
                   · ¡Todos listos!
                 }
@@ -380,8 +391,8 @@
                       size="sm"
                     />
                     {{ p.isReady ? '✓' : '○' }} {{ p.name }}
-                    @if (p.voteCount > 0) {
-                      ({{ p.voteCount }})
+                    @if (participantVoteTotal(p.participantId) > 0) {
+                      ({{ participantVoteTotal(p.participantId) }})
                     }
                   </span>
                 }
@@ -416,9 +427,7 @@
           }
         }
         @if (r.status === 'grouping' && isParticipant()) {
-          <span class="hint">
-            {{ selectedCardId() ? 'Elegí otra tarjeta para agrupar' : 'Selecciona dos tarjetas para agruparlas' }}
-          </span>
+          <span class="hint">{{ groupingHint() }}</span>
         }
       </div>
 
@@ -635,15 +644,42 @@
                 }
               </div>
             </header>
-            <div class="cards">
+            <div
+              class="cards"
+              cdkDropList
+              [id]="columnDropId(col.id)"
+              [cdkDropListData]="columnDropData(col.id)"
+              [cdkDropListConnectedTo]="connectedDropListIds(col.id)"
+              [cdkDropListSortingDisabled]="true"
+              [cdkDropListDisabled]="!canGroupDrag()"
+              [cdkDropListEnterPredicate]="canEnterGroupDrop"
+              (cdkDropListDropped)="onGroupDrop($event)"
+              [class.drop-ungroup]="isColumnDropOver(col.id)"
+              data-group-target
+              [attr.data-group-kind]="'column'"
+              [attr.data-column-id]="col.id"
+            >
               @for (card of cardsForColumn(col.id); track card.id) {
                 @if (isGroupCard(card)) {
                   <div
+                    class="group-drop"
+                    [class.drop-over]="isDropOverStack(card)"
+                    [attr.data-group-target]="isStackExpanded(card) ? null : ''"
+                    [attr.data-group-kind]="'stack'"
+                    [attr.data-card-id]="card.id"
+                    [attr.data-group-id]="card.groupId || ''"
+                    [attr.data-column-id]="col.id"
+                  >
+                  <div
                     class="sticky-stack"
+                    cdkDrag
+                    [cdkDragData]="stackDragData(card, col.id)"
+                    [cdkDragDisabled]="!canGroupDrag() || isStackExpanded(card)"
+                    (cdkDragStarted)="onGroupDragStarted($event)"
+                    (cdkDragMoved)="onGroupDragMoved($event)"
+                    (cdkDragEnded)="onGroupDragEnded()"
                     [class.expanded]="isStackExpanded(card)"
-                    [class.selected]="selectedCardId() === card.id"
-                    [class.group-target]="isGroupTarget(card)"
-                    [class.groupable]="isGroupingSelect(card)"
+                    [class.group-draggable]="canGroupDrag() && !isStackExpanded(card)"
                     [class.stack-clickable]="r.status === 'voting'"
                     (click)="onBoardCardClick(card, $event)"
                   >
@@ -652,11 +688,29 @@
                     }
                     <div class="stack-cards">
                       @for (member of visibleStackMembers(card); track member.id) {
+                        <div
+                          class="group-drop"
+                          [class.drop-over]="isDropOverCard(member.id)"
+                          [attr.data-group-target]="isStackExpanded(card) ? '' : null"
+                          [attr.data-group-kind]="'card'"
+                          [attr.data-card-id]="member.id"
+                          [attr.data-group-id]="member.groupId || ''"
+                          [attr.data-column-id]="col.id"
+                        >
                         <article
                           class="sticky"
+                          cdkDrag
+                          [cdkDragData]="cardDragData(member, col.id)"
+                          [cdkDragDisabled]="!canGroupDrag() || !isStackExpanded(card)"
+                          (cdkDragStarted)="onGroupDragStarted($event)"
+                          (cdkDragMoved)="onGroupDragMoved($event)"
+                          (cdkDragEnded)="onGroupDragEnded()"
                           [class.stack-header]="member.id === card.id"
                           [class.stack-member]="member.id !== card.id"
                           [class.hidden-card]="member.hidden"
+                          [class.group-draggable]="
+                            canGroupDrag() && isStackExpanded(card)
+                          "
                           [class.has-delete]="
                             canDeleteCard(member) && editingCardId !== member.id
                           "
@@ -694,6 +748,7 @@
                                     : 'Ver comentarios del grupo'
                                 "
                                 (click)="toggleStack(card, $event)"
+                                (pointerdown)="$event.stopPropagation()"
                               >
                                 <span class="stack-count">{{ card.groupSize }}</span>
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -715,7 +770,7 @@
                             "
                           />
                           @if (editingCardId === member.id) {
-                            <div class="card-edit" (click)="$event.stopPropagation()">
+                            <div class="card-edit" (click)="$event.stopPropagation()" (pointerdown)="$event.stopPropagation()">
                               <textarea
                                 #editTa
                                 autosizeTextarea
@@ -794,6 +849,7 @@
                                   type="button"
                                   class="btn-ghost btn-sm"
                                   (click)="startEdit(member, $event)"
+                                  (pointerdown)="$event.stopPropagation()"
                                 >
                                   Editar
                                 </button>
@@ -809,15 +865,30 @@
                             />
                           }
                         </article>
+                        </div>
                       }
                     </div>
                   </div>
+                  </div>
                 } @else {
+                  <div
+                    class="group-drop"
+                    [class.drop-over]="isDropOverCard(card.id)"
+                    data-group-target
+                    [attr.data-group-kind]="'card'"
+                    [attr.data-card-id]="card.id"
+                    [attr.data-group-id]="card.groupId || ''"
+                    [attr.data-column-id]="col.id"
+                  >
                   <article
                     class="sticky"
-                    [class.selected]="selectedCardId() === card.id"
-                    [class.group-target]="isGroupTarget(card)"
-                    [class.groupable]="isGroupingSelect(card)"
+                    cdkDrag
+                    [cdkDragData]="cardDragData(card, col.id)"
+                    [cdkDragDisabled]="!canGroupDrag()"
+                    (cdkDragStarted)="onGroupDragStarted($event)"
+                    (cdkDragMoved)="onGroupDragMoved($event)"
+                    (cdkDragEnded)="onGroupDragEnded()"
+                    [class.group-draggable]="canGroupDrag()"
                     [class.hidden-card]="card.hidden"
                     [class.has-delete]="canDeleteCard(card) && editingCardId !== card.id"
                     (click)="onBoardCardClick(card, $event)"
@@ -826,7 +897,7 @@
                       *ngTemplateOutlet="deleteBtn; context: { $implicit: card }"
                     />
                     @if (editingCardId === card.id) {
-                      <div class="card-edit" (click)="$event.stopPropagation()">
+                      <div class="card-edit" (click)="$event.stopPropagation()" (pointerdown)="$event.stopPropagation()">
                         <textarea
                           #editTa
                           autosizeTextarea
@@ -890,7 +961,7 @@
                       />
                       @if (canEditCard(card)) {
                         <div class="card-actions">
-                          <button type="button" class="btn-ghost btn-sm" (click)="startEdit(card, $event)">
+                          <button type="button" class="btn-ghost btn-sm" (click)="startEdit(card, $event)" (pointerdown)="$event.stopPropagation()">
                             Editar
                           </button>
                         </div>
@@ -902,6 +973,7 @@
                       />
                     }
                   </article>
+                  </div>
                 }
               }
             </div>
@@ -991,6 +1063,7 @@
       </div>
     }
 
+    @if (!isPresenting()) {
     <footer class="retro-dock" aria-label="Controles de la retrospectiva">
       <div class="retro-dock-slot start">
         @if (isFacilitator() && prevPhase(); as prev) {
@@ -1028,16 +1101,10 @@
         }
       </div>
     </footer>
+    }
 
     @if (copyToast(); as msg) {
       <div class="copy-toast" role="status" aria-live="polite">{{ msg }}</div>
-    }
-
-    @if (r.status === 'grouping' && isParticipant() && selectedCardId()) {
-      <div class="group-toast" role="status" aria-live="polite">
-        <strong>Elegí otra tarjeta para agrupar</strong>
-        <span>Click de nuevo en esta para cancelar</span>
-      </div>
     }
 
     <ng-template #deleteBtn let-c>
@@ -1048,6 +1115,7 @@
           title="Borrar"
           aria-label="Borrar comentario"
           (click)="deleteCard(c, $event)"
+          (pointerdown)="$event.stopPropagation()"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -1093,7 +1161,7 @@
             type="button"
             class="btn-ghost btn-sm"
             (click)="changeVote(c, 1); $event.stopPropagation()"
-            [disabled]="myVotesOn(c) >= r.maxVotesPerCard || (r.me?.votesRemaining ?? 0) <= 0"
+            [disabled]="myVotesOn(c) >= r.maxVotesPerCard || votesRemaining() <= 0"
           >+</button>
         }
         @if (r.status === 'actions') {

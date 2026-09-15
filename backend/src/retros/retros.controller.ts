@@ -33,6 +33,7 @@ import {
   SetPresenterDto,
   TimerAddDto,
   TimerDto,
+  UngroupCardsDto,
   UpdateCardDto,
   UpdateSettingsDto,
   VoteDto,
@@ -203,6 +204,16 @@ export class RetrosController {
     @Body() dto: GroupCardsDto,
   ) {
     return this.retros.groupCards(user, id, dto);
+  }
+
+  @Post(':id/ungroup')
+  @UseGuards(JwtAuthGuard)
+  ungroupCards(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UngroupCardsDto,
+  ) {
+    return this.retros.ungroupCards(user, id, dto);
   }
 
   @Post(':id/votes')

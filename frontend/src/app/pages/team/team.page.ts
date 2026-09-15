@@ -294,6 +294,18 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
               <input type="checkbox" [(ngModel)]="allowAnonymous" name="anon" />
               Permitir comentarios anónimos
             </label>
+            <label class="check">
+              <input
+                type="checkbox"
+                [(ngModel)]="allowCrossColumnGrouping"
+                name="crossCol"
+              />
+              Permitir agrupar tarjetas entre columnas
+            </label>
+            <p class="template-hint">
+              Las columnas son temas distintos; activá esto solo si el equipo
+              quiere mezclarlas.
+            </p>
             @if (error()) {
               <p class="form-error">{{ error() }}</p>
             }
@@ -595,6 +607,7 @@ export class TeamPage implements OnInit, OnDestroy {
   maxVotesPerCard = 2;
   timerSeconds = 300;
   allowAnonymous = true;
+  allowCrossColumnGrouping = false;
   error = signal('');
   reminder = signal<number | null>(null);
   inviteCopied = signal(false);
@@ -730,6 +743,7 @@ export class TeamPage implements OnInit, OnDestroy {
 
   openCreateModal() {
     this.error.set('');
+    this.allowCrossColumnGrouping = false;
     this.showCreateModal.set(true);
   }
 
@@ -874,6 +888,7 @@ export class TeamPage implements OnInit, OnDestroy {
         votesPerParticipant: this.votesPerParticipant,
         maxVotesPerCard: this.maxVotesPerCard,
         allowAnonymous: this.allowAnonymous,
+        allowCrossColumnGrouping: this.allowCrossColumnGrouping,
         timerSeconds: this.timerSeconds,
       })
       .subscribe({

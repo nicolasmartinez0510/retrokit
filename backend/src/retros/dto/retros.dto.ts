@@ -55,6 +55,11 @@ export class CreateRetroDto {
   allowAnonymous?: boolean;
 
   @IsOptional()
+  @Transform(toOptionalBoolean)
+  @IsBoolean()
+  allowCrossColumnGrouping?: boolean;
+
+  @IsOptional()
   @IsInt()
   @Min(30)
   timerSeconds?: number | null;
@@ -79,6 +84,11 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsBoolean()
   allowAnonymous?: boolean;
+
+  @IsOptional()
+  @Transform(toOptionalBoolean)
+  @IsBoolean()
+  allowCrossColumnGrouping?: boolean;
 
   @IsOptional()
   @IsInt()
@@ -143,6 +153,26 @@ export class GroupCardsDto {
   @IsString()
   @IsNotEmpty()
   targetCardId!: string;
+
+  @IsOptional()
+  @Transform(toOptionalBoolean)
+  @IsBoolean()
+  moveGroup?: boolean;
+}
+
+export class UngroupCardsDto {
+  @IsString()
+  @IsNotEmpty()
+  cardId!: string;
+
+  @IsOptional()
+  @IsString()
+  columnId?: string;
+
+  @IsOptional()
+  @Transform(toOptionalBoolean)
+  @IsBoolean()
+  ungroupAll?: boolean;
 }
 
 export class VoteDto {

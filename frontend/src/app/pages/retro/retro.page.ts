@@ -1,7 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import {
+  afterNextRender,
   Component,
   HostListener,
+  Injector,
   OnDestroy,
   OnInit,
   computed,
@@ -9,6 +11,13 @@ import {
   signal,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
+import {
+  CdkDrag,
+  CdkDragDrop,
+  CdkDragMove,
+  CdkDragStart,
+  CdkDropList,
+} from '@angular/cdk/drag-drop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
@@ -61,6 +70,17 @@ type StackAuthor = {
   ownerId?: string;
 };
 
+type GroupDragData = {
+  kind: 'card' | 'stack';
+  cardId: string;
+  groupId: string | null;
+  columnId: string;
+};
+
+type GroupDropData =
+  | { kind: 'column'; columnId: string }
+  | GroupDragData;
+
 export interface RetroAccessDenied {
   teamId: string;
   teamName: string;
@@ -88,6 +108,8 @@ const CARD_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
     EmojiPickerComponent,
     UserAvatarComponent,
     ActionItemModalComponent,
+    CdkDropList,
+    CdkDrag,
   ],
   templateUrl: './retro.page.html',
   styleUrl: './retro.page.scss',
@@ -99,6 +121,7 @@ export class RetroPage implements OnInit, OnDestroy {
   private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
 
   private retroId = '';
   private readonly refreshBoard = () => {
@@ -140,8 +163,9 @@ export class RetroPage implements OnInit, OnDestroy {
   editImagePreview: string | null = null;
   editRemoveImage = false;
   readonly imageAccept = CARD_IMAGE_ACCEPT;
-  selectedCardId = signal<string | null>(null);
   expandedGroupIds = signal<ReadonlySet<string>>(new Set());
+  hoverGroupTarget = signal<GroupDropData | null>(null);
+  draggingSource = signal<GroupDropData | null>(null);
   sortMode = signal<SortMode>('most');
   voteFilter = signal<VoteFilter>('voted');
   selectedThemeIds = signal<ReadonlySet<string>>(new Set());
@@ -184,6 +208,7 @@ export class RetroPage implements OnInit, OnDestroy {
   votesPerParticipant = 5;
   maxVotesPerCard = 2;
   timerSeconds = 300;
+  allowCrossColumnGrouping = false;
   readonly timerPresets = [
     { value: 300, label: '5 min' },
     { value: 600, label: '10 min' },
@@ -274,7 +299,7 @@ export class RetroPage implements OnInit, OnDestroy {
     const r = this.retro();
     if (!r?.me?.participantId) return true;
     if (r.status === 'voting') {
-      return r.me.myVoteTotal >= r.votesPerParticipant;
+      return this.usedVoteTotal() >= r.votesPerParticipant;
     }
     if (r.status !== 'comments' && r.status !== 'grouping') return false;
     if (r.maxCommentsPerParticipant == null) return false;
@@ -341,7 +366,6 @@ export class RetroPage implements OnInit, OnDestroy {
         this.accessDenied.set(null);
         this.loadError.set('');
         this.retro.set(r);
-        if (r.status !== 'grouping') this.selectedCardId.set(null);
         if (r.status !== 'actions') {
           this.presentArmed.set(false);
           this.lastPresentIndex = -1;
@@ -350,6 +374,7 @@ export class RetroPage implements OnInit, OnDestroy {
         this.votesPerParticipant = r.votesPerParticipant;
         this.maxVotesPerCard = r.maxVotesPerCard;
         this.timerSeconds = r.timerSeconds ?? 300;
+        this.allowCrossColumnGrouping = !!r.allowCrossColumnGrouping;
         this.syncTimer(r.timerEndsAt);
         this.maybeShowJoinModal(r);
       },
@@ -565,49 +590,253 @@ export class RetroPage implements OnInit, OnDestroy {
     return authors;
   }
 
-  isGroupTarget(card: BoardCard): boolean {
-    const selectedId = this.selectedCardId();
-    if (!selectedId || card.hidden) return false;
-    if (card.id === selectedId) return false;
-    const r = this.retro();
-    const selected = r?.cards.find((c) => c.id === selectedId);
-    if (selected?.groupId && card.groupId && selected.groupId === card.groupId) {
-      return false;
-    }
-    return true;
-  }
-
-  isGroupingSelect(card: BoardCard): boolean {
+  canGroupDrag() {
     const r = this.retro();
     return (
-      r?.status === 'grouping' &&
+      !!r &&
+      r.status === 'grouping' &&
       this.isParticipant() &&
       !this.editingCardId
     );
   }
 
-  toggleStack(card: BoardCard, event?: Event) {
-    event?.stopPropagation();
-    if (!this.isGroupCard(card) || !card.groupId) return;
-    const next = new Set(this.expandedGroupIds());
-    if (next.has(card.groupId)) next.delete(card.groupId);
-    else next.add(card.groupId);
-    this.expandedGroupIds.set(next);
+  groupingHint() {
+    const r = this.retro();
+    if (r?.allowCrossColumnGrouping) {
+      return 'Arrastrá una tarjeta sobre otra para agrupar. Soltala en el vacío de una columna para dejarla suelta.';
+    }
+    return 'Arrastrá una tarjeta sobre otra de la misma columna para agrupar. Soltala en el vacío para dejarla suelta.';
+  }
+
+  columnDropId(columnId: string) {
+    return `col-drop-${columnId}`;
+  }
+
+  columnDropData(columnId: string): GroupDropData {
+    return { kind: 'column', columnId };
+  }
+
+  cardDragData(card: Card, columnId: string): GroupDropData {
+    return {
+      kind: 'card',
+      cardId: card.id,
+      groupId: card.groupId ?? null,
+      columnId,
+    };
+  }
+
+  stackDragData(card: BoardCard, columnId: string): GroupDropData {
+    return {
+      kind: 'stack',
+      cardId: card.id,
+      groupId: card.groupId ?? null,
+      columnId,
+    };
+  }
+
+  connectedDropListIds(columnId: string): string[] {
+    const r = this.retro();
+    if (!r || !this.canGroupDrag()) return [];
+    const cols = r.allowCrossColumnGrouping
+      ? r.columns
+      : r.columns.filter((c) => c.id === columnId);
+    return cols.map((col) => this.columnDropId(col.id));
+  }
+
+  isDropOverCard(cardId: string) {
+    const t = this.hoverGroupTarget();
+    return t?.kind === 'card' && t.cardId === cardId;
+  }
+
+  isDropOverStack(card: BoardCard) {
+    const t = this.hoverGroupTarget();
+    return t?.kind === 'stack' && t.groupId === card.groupId && !!card.groupId;
+  }
+
+  isColumnDropOver(columnId: string) {
+    const t = this.hoverGroupTarget();
+    const source = this.draggingSource();
+    if (!t || t.kind !== 'column' || t.columnId !== columnId || !source) {
+      return false;
+    }
+    if (source.kind === 'column') return false;
+    if (
+      source.kind === 'card' &&
+      !source.groupId &&
+      source.columnId === columnId
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  readonly canEnterGroupDrop = (
+    drag: CdkDrag<GroupDropData>,
+    drop: CdkDropList<GroupDropData>,
+  ) => {
+    const source = drag.data;
+    const dest = drop.data;
+    if (!source || !dest || !this.canGroupDrag()) return false;
+    if (source.kind === 'column' || dest.kind !== 'column') return false;
+    const r = this.retro();
+    if (!r) return false;
+    if (!r.allowCrossColumnGrouping && source.columnId !== dest.columnId) {
+      return false;
+    }
+    return true;
+  };
+
+  onGroupDragStarted(event: CdkDragStart<GroupDropData>) {
+    this.draggingSource.set(event.source.data);
+    this.hoverGroupTarget.set(null);
+  }
+
+  onGroupDragMoved(event: CdkDragMove<GroupDropData>) {
+    if (!this.canGroupDrag()) return;
+    const source = event.source.data;
+    if (!source || source.kind === 'column') return;
+    this.hoverGroupTarget.set(this.hitTestGroupTarget(source, event.pointerPosition));
+  }
+
+  onGroupDragEnded() {
+    queueMicrotask(() => {
+      this.draggingSource.set(null);
+      this.hoverGroupTarget.set(null);
+    });
+  }
+
+  onGroupDrop(event: CdkDragDrop<GroupDropData>) {
+    const r = this.retro();
+    const source = event.item.data;
+    const dest = this.hoverGroupTarget();
+    this.hoverGroupTarget.set(null);
+    this.draggingSource.set(null);
+    if (!r || !this.canGroupDrag() || !source || source.kind === 'column') {
+      return;
+    }
+    if (!dest) return;
+    if (!r.allowCrossColumnGrouping && source.columnId !== dest.columnId) {
+      return;
+    }
+
+    if (dest.kind === 'column') {
+      if (
+        source.kind === 'card' &&
+        !source.groupId &&
+        source.columnId === dest.columnId
+      ) {
+        return;
+      }
+      this.api
+        .ungroupCards(r.id, {
+          cardId: source.cardId,
+          columnId: dest.columnId,
+          ungroupAll: source.kind === 'stack',
+        })
+        .subscribe({
+          next: () => this.reload(r.id),
+          error: (e) =>
+            this.error.set(e?.error?.message || 'No se pudo desagrupar'),
+        });
+      return;
+    }
+
+    if (source.cardId === dest.cardId) return;
+    if (source.groupId && dest.groupId && source.groupId === dest.groupId) {
+      return;
+    }
+
+    this.api
+      .groupCards(r.id, source.cardId, dest.cardId, {
+        moveGroup: source.kind === 'stack',
+      })
+      .subscribe({
+        next: () => this.reload(r.id),
+        error: (e) =>
+          this.error.set(e?.error?.message || 'No se pudo agrupar'),
+      });
+  }
+
+  private hitTestGroupTarget(
+    source: GroupDragData,
+    point: { x: number; y: number },
+  ): GroupDropData | null {
+    const hits = document.elementsFromPoint(point.x, point.y);
+    for (const el of hits) {
+      if (!(el instanceof Element)) continue;
+      if (el.closest('.cdk-drag-preview')) continue;
+      if (el.closest('.cdk-drag-placeholder')) return null;
+      const node = el.closest('[data-group-target]') as HTMLElement | null;
+      if (!node) continue;
+      const parsed = this.parseGroupTarget(node);
+      if (!parsed) continue;
+      if (!this.retro()?.allowCrossColumnGrouping && parsed.columnId !== source.columnId) {
+        continue;
+      }
+      if (parsed.kind === 'column') {
+        return parsed;
+      }
+      if (parsed.cardId === source.cardId) {
+        continue;
+      }
+      if (source.groupId && parsed.groupId && source.groupId === parsed.groupId) {
+        return null;
+      }
+      return parsed;
+    }
+    return null;
+  }
+
+  private parseGroupTarget(node: HTMLElement): GroupDropData | null {
+    const kind = node.dataset['groupKind'];
+    const columnId = node.dataset['columnId'];
+    if (!kind || !columnId) return null;
+    if (kind === 'column') {
+      return { kind: 'column', columnId };
+    }
+    const cardId = node.dataset['cardId'];
+    if (!cardId) return null;
+    const groupId = node.dataset['groupId'] || null;
+    if (kind === 'card' || kind === 'stack') {
+      return { kind, cardId, groupId, columnId };
+    }
+    return null;
   }
 
   onBoardCardClick(card: BoardCard, event?: Event) {
     const r = this.retro();
     if (!r || this.editingCardId) return;
-    if (this.isGroupingSelect(card)) {
-      this.selectForGroup(card.id);
-      return;
-    }
     if (
       (r.status === 'voting' || r.status === 'actions') &&
       this.isGroupCard(card)
     ) {
       this.toggleStack(card, event);
     }
+  }
+
+  toggleStack(card: BoardCard, event?: Event) {
+    event?.stopPropagation();
+    if (!this.isGroupCard(card) || !card.groupId) return;
+    const next = new Set(this.expandedGroupIds());
+    const expanding = !next.has(card.groupId);
+    if (expanding) next.add(card.groupId);
+    else next.delete(card.groupId);
+    this.expandedGroupIds.set(next);
+    if (!expanding) return;
+    const stack =
+      event?.target instanceof Element
+        ? event.target.closest('.sticky-stack')
+        : null;
+    afterNextRender(
+      () => {
+        stack?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'nearest',
+        });
+      },
+      { injector: this.injector },
+    );
   }
 
   onStackArticleClick(member: Card, card: BoardCard, event: Event) {
@@ -639,10 +868,6 @@ export class RetroPage implements OnInit, OnDestroy {
         return;
       }
       if (this.editingCardId) return;
-      if (this.selectedCardId()) {
-        this.selectedCardId.set(null);
-        return;
-      }
       if (this.isPresenting() && this.isFacilitator()) {
         event.preventDefault();
         this.stopPresenting();
@@ -699,6 +924,40 @@ export class RetroPage implements OnInit, OnDestroy {
         (card.groupId ? x.groupId === card.groupId : x.cardId === card.id),
     );
     return v?.count ?? 0;
+  }
+
+  usedVoteTotal(): number {
+    const r = this.retro();
+    const pid = r?.me?.participantId;
+    if (!r || !pid) return 0;
+    return this.participantVoteTotal(pid);
+  }
+
+  participantVoteTotal(participantId: string): number {
+    const r = this.retro();
+    if (!r) return 0;
+    const groupedCardIds = new Set(
+      r.cards.filter((c) => c.groupId).map((c) => c.id),
+    );
+    return r.votes
+      .filter((v) => v.participantId === participantId)
+      .filter((v) => !v.cardId || !groupedCardIds.has(v.cardId))
+      .reduce((s, v) => s + v.count, 0);
+  }
+
+  progressVotesUsed(): number {
+    const r = this.retro();
+    if (!r?.voteProgress) return 0;
+    return r.voteProgress.participants.reduce(
+      (s, p) => s + this.participantVoteTotal(p.participantId),
+      0,
+    );
+  }
+
+  votesRemaining(): number {
+    const r = this.retro();
+    if (!r) return 0;
+    return Math.max(0, r.votesPerParticipant - this.usedVoteTotal());
   }
 
   canSubmitComposer(columnId: string): boolean {
@@ -978,7 +1237,6 @@ export class RetroPage implements OnInit, OnDestroy {
     this.api.deleteCard(r.id, card.id).subscribe({
       next: () => {
         if (this.editingCardId === card.id) this.cancelEdit();
-        if (this.selectedCardId() === card.id) this.selectedCardId.set(null);
         this.reload(r.id);
       },
       error: (e) =>
@@ -1003,34 +1261,6 @@ export class RetroPage implements OnInit, OnDestroy {
       next: () => this.reload(r.id),
       error: (e) =>
         this.error.set(e?.error?.message || 'No se pudo actualizar el estado'),
-    });
-  }
-
-  selectForGroup(cardId: string) {
-    const r = this.retro();
-    if (!r || r.status !== 'grouping' || this.isSpectator()) return;
-    const selectedId = this.selectedCardId();
-    if (!selectedId) {
-      this.selectedCardId.set(cardId);
-      return;
-    }
-    if (selectedId === cardId) {
-      this.selectedCardId.set(null);
-      return;
-    }
-    const selected = r.cards.find((c) => c.id === selectedId);
-    const clicked = r.cards.find((c) => c.id === cardId);
-    if (selected?.groupId && clicked?.groupId === selected.groupId) {
-      return;
-    }
-    const sourceId = selected?.groupId ? cardId : selectedId;
-    const targetId = selected?.groupId ? selectedId : cardId;
-    this.api.groupCards(r.id, sourceId, targetId).subscribe({
-      next: () => {
-        this.selectedCardId.set(null);
-        this.reload(r.id);
-      },
-      error: (e) => this.error.set(e?.error?.message || 'No se pudo agrupar'),
     });
   }
 
@@ -1081,6 +1311,7 @@ export class RetroPage implements OnInit, OnDestroy {
         votesPerParticipant: this.votesPerParticipant,
         maxVotesPerCard: this.maxVotesPerCard,
         timerSeconds: this.timerSeconds,
+        allowCrossColumnGrouping: this.allowCrossColumnGrouping,
       })
       .subscribe({
         next: () => {

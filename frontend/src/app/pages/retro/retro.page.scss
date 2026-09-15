@@ -319,6 +319,20 @@
   margin: 0.75rem 0;
 }
 
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  margin: 0.15rem 0 0.25rem;
+}
+
+.field-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
 .invite-row {
   display: grid;
   grid-template-columns: 140px 1fr auto;
@@ -502,6 +516,45 @@
   flex-direction: column;
   flex: 1 1 auto;
   gap: 0.55rem;
+  min-height: 4.5rem;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease, outline-color 0.15s ease;
+
+  &.drop-ungroup {
+    background: color-mix(in srgb, var(--color-sky-mid) 28%, transparent);
+    outline: 2px dashed color-mix(in srgb, var(--color-brand) 55%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+.cdk-drag-placeholder {
+  background: color-mix(in srgb, var(--color-sky-soft) 40%, transparent) !important;
+  border: 2px dashed color-mix(in srgb, var(--color-brand) 55%, var(--color-border)) !important;
+  box-shadow: none !important;
+  outline: none !important;
+
+  > * {
+    visibility: hidden;
+  }
+}
+
+.cdk-drag-animating {
+  transition: transform 180ms ease;
+}
+
+.group-drop {
+  width: 100%;
+  padding: 0.28rem 0;
+  margin: -0.28rem 0;
+
+  &.drop-over > .sticky,
+  &.drop-over > .sticky-stack:not(.expanded),
+  &.drop-over > .sticky-stack .stack-header {
+    border-color: var(--color-brand);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+    outline: 2px solid var(--color-brand);
+    outline-offset: -1px;
+  }
 }
 
 .sticky-stack {
@@ -509,31 +562,62 @@
   position: relative;
   width: 100%;
   isolation: isolate;
+  scroll-margin-top: 1rem;
+  scroll-margin-bottom: 7rem;
 
   &:not(.expanded) {
     padding-bottom: var(--stack-peek);
   }
 
   &.expanded {
-    padding: 0;
-  }
+    padding: 0.35rem;
+    background: color-mix(in srgb, var(--color-sky-soft) 55%, var(--color-bg-muted));
+    border: 1px solid color-mix(in srgb, var(--color-brand) 32%, var(--color-border));
+    border-radius: calc(var(--radius-sm) + 4px);
 
-  &.groupable,
-  &.stack-clickable {
+    .stack-cards {
+      gap: 0.35rem;
+    }
+
+    .group-drop {
+      padding: 0;
+      margin: 0;
+    }
+
     .stack-header {
-      cursor: pointer;
+      border-color: color-mix(in srgb, var(--color-brand) 22%, var(--color-border));
+    }
+
+    .stack-member {
+      width: calc(100% - 0.7rem);
+      margin-inline: 0.35rem;
+      padding: 0.58rem 0.65rem;
+      font-size: 0.92em;
+      background: color-mix(in srgb, var(--color-bg) 82%, var(--color-bg-muted));
+      border-color: var(--color-border);
+      box-shadow: none;
+
+      &.has-delete {
+        padding-right: 2.15rem;
+      }
     }
   }
 
-  &.selected .stack-header {
-    border-color: var(--color-brand);
-    box-shadow: 0 0 0 2px var(--color-focus-ring);
+  &.group-draggable {
+    cursor: grab;
+
+    .stack-header {
+      cursor: grab;
+    }
   }
 
-  &.group-target:not(.selected) .stack-header {
-    border-color: var(--color-sky-mid);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-sky-mid) 50%, transparent);
+  &.stack-clickable .stack-header {
     cursor: pointer;
+  }
+
+  &.group-draggable.cdk-drag-dragging .stack-header,
+  &.cdk-drag-dragging {
+    cursor: grabbing;
   }
 }
 
@@ -648,19 +732,12 @@
     width: 100%;
   }
 
-  &.groupable {
-    cursor: pointer;
+  &.group-draggable {
+    cursor: grab;
   }
 
-  &.selected {
-    border-color: var(--color-brand);
-    box-shadow: 0 0 0 2px var(--color-focus-ring);
-  }
-
-  &.group-target:not(.selected) {
-    border-color: var(--color-sky-mid);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-sky-mid) 50%, transparent);
-    cursor: pointer;
+  &.cdk-drag-dragging {
+    cursor: grabbing;
   }
 
   &.hidden-card {
@@ -1603,7 +1680,7 @@
   position: fixed;
   left: 50%;
   bottom: max(1rem, env(safe-area-inset-bottom));
-  z-index: 30;
+  z-index: 50;
   transform: translateX(-50%);
   display: inline-grid;
   grid-template-columns: auto auto auto;
@@ -1691,8 +1768,7 @@
   margin-bottom: 0.75rem;
 }
 
-.copy-toast,
-.group-toast {
+.copy-toast {
   position: fixed;
   left: 50%;
   bottom: 6.5rem;
@@ -1707,24 +1783,6 @@
   box-shadow: var(--shadow);
   pointer-events: none;
   animation: copy-toast-in 0.2s ease;
-}
-
-.group-toast {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-  font-weight: 500;
-  text-align: center;
-
-  strong {
-    font-weight: 700;
-  }
-
-  span {
-    font-size: 0.75rem;
-    opacity: 0.85;
-  }
 }
 
 .spectator-badge {

@@ -111,6 +111,7 @@ model Retrospective {
   votesPerParticipant       Int            @default(5)
   maxVotesPerCard           Int            @default(2)
   allowAnonymous            Boolean        @default(true)
+  allowCrossColumnGrouping  Boolean        @default(false)
   timerSeconds              Int?
   timerEndsAt               DateTime?
   timerPausedRemaining      Int?

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { RetroStatus, TeamRole } from '@prisma/client';
+import { Prisma, RetroStatus, TeamRole } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,6 +26,7 @@ import {
   CreateRetroDto,
   GroupCardsDto,
   JoinRetroDto,
+  UngroupCardsDto,
   RotiDto,
   TimerAddDto,
   TimerDto,
@@ -119,6 +120,7 @@ export class RetrosService {
           dto.votesPerParticipant ?? template.votesPerParticipant ?? 5,
         maxVotesPerCard: dto.maxVotesPerCard ?? template.maxVotesPerCard ?? 2,
         allowAnonymous: dto.allowAnonymous ?? true,
+        allowCrossColumnGrouping: dto.allowCrossColumnGrouping ?? false,
         timerSeconds: dto.timerSeconds ?? null,
         backgroundColor: template.backgroundColor,
         backgroundImageUrl: template.backgroundImageUrl,
@@ -275,6 +277,9 @@ export class RetrosService {
         ...(dto.allowAnonymous !== undefined && {
           allowAnonymous: dto.allowAnonymous,
         }),
+        ...(dto.allowCrossColumnGrouping !== undefined && {
+          allowCrossColumnGrouping: dto.allowCrossColumnGrouping,
+        }),
         ...(dto.timerSeconds !== undefined && {
           timerSeconds: dto.timerSeconds,
         }),
@@ -286,6 +291,7 @@ export class RetrosService {
       votesPerParticipant: updated.votesPerParticipant,
       maxVotesPerCard: updated.maxVotesPerCard,
       allowAnonymous: updated.allowAnonymous,
+      allowCrossColumnGrouping: updated.allowCrossColumnGrouping,
       timerSeconds: updated.timerSeconds,
       timerEndsAt: updated.timerEndsAt,
     });
@@ -469,10 +475,18 @@ export class RetrosService {
 
     if (retro.status === RetroStatus.voting) {
       if (!ready) {
-        const myVotes = await this.prisma.vote.findMany({
-          where: { retroId, participantId: participant.id },
-        });
-        const myVoteTotal = myVotes.reduce((s, v) => s + v.count, 0);
+        await this.collapseGroupedCardVotes(retroId, retro.maxVotesPerCard);
+        const [myVotes, groupedCards] = await Promise.all([
+          this.prisma.vote.findMany({
+            where: { retroId, participantId: participant.id },
+          }),
+          this.prisma.card.findMany({
+            where: { retroId, groupId: { not: null } },
+            select: { id: true },
+          }),
+        ]);
+        const groupedCardIds = new Set(groupedCards.map((c) => c.id));
+        const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
         if (myVoteTotal >= retro.votesPerParticipant) {
           throw new BadRequestException(
             'Cannot unready when vote limit is reached',
@@ -680,7 +694,11 @@ export class RetrosService {
       throw new ForbiddenException('Cannot delete this card');
     }
 
-    await this.prisma.card.delete({ where: { id: cardId } });
+    const groupId = card.groupId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.card.delete({ where: { id: cardId } });
+      await this.dissolveIfOrphan(groupId, tx, retro.maxVotesPerCard);
+    });
     await this.uploads.deleteByPublicUrl(card.imageUrl);
     if (retro.presenterCardId === cardId) {
       await this.prisma.retrospective.update({
@@ -743,42 +761,184 @@ export class RetrosService {
       throw new NotFoundException('Card not found');
     }
 
-    let groupId = target.groupId;
-    if (!groupId) {
-      const group = await this.prisma.cardGroup.create({
-        data: {
-          retroId,
-          title: null,
-        },
-      });
-      groupId = group.id;
-      await this.prisma.card.update({
-        where: { id: target.id },
-        data: { groupId },
-      });
+    this.assertSameColumnUnlessAllowed(
+      retro,
+      source.columnId,
+      target.columnId,
+    );
+
+    if (source.groupId && source.groupId === target.groupId) {
+      return this.getBoard(retroId, user);
     }
 
-    const siblings = await this.prisma.card.findMany({
-      where: { groupId },
-      select: { position: true },
-    });
-    const nextPosition =
-      Math.max(target.position, ...siblings.map((c) => c.position)) + 1;
+    const moveGroup = !!dto.moveGroup && !!source.groupId;
 
-    const updatedSource = await this.prisma.card.update({
-      where: { id: source.id },
-      data: { groupId, columnId: target.columnId, position: nextPosition },
-      include: {
-        author: {
-          include: {
-            user: { select: userPublicSelect },
-          },
+    await this.prisma.$transaction(async (tx) => {
+      let groupId = target.groupId;
+      if (!groupId) {
+        const group = await tx.cardGroup.create({
+          data: { retroId, title: null },
+        });
+        groupId = group.id;
+        await tx.card.update({
+          where: { id: target.id },
+          data: { groupId },
+        });
+      }
+
+      const siblings = await tx.card.findMany({
+        where: { groupId },
+        select: { position: true },
+      });
+      let nextPosition =
+        Math.max(target.position, -1, ...siblings.map((c) => c.position)) + 1;
+
+      if (moveGroup && source.groupId) {
+        const oldGroupId = source.groupId;
+        const members = await tx.card.findMany({
+          where: { groupId: oldGroupId },
+          orderBy: { position: 'asc' },
+        });
+        for (const member of members) {
+          await tx.card.update({
+            where: { id: member.id },
+            data: {
+              groupId,
+              columnId: target.columnId,
+              position: nextPosition++,
+            },
+          });
+        }
+        await this.mergeGroupVotes(
+          tx,
+          oldGroupId,
+          groupId,
+          retro.maxVotesPerCard,
+        );
+        const targetMembers = await tx.card.findMany({
+          where: { groupId },
+          select: { id: true },
+        });
+        await this.migrateCardVotesToGroup(
+          tx,
+          retroId,
+          groupId,
+          targetMembers.map((m) => m.id),
+          retro.maxVotesPerCard,
+        );
+        await this.dissolveIfOrphan(oldGroupId, tx, retro.maxVotesPerCard);
+        return;
+      }
+
+      const oldGroupId = source.groupId;
+      await tx.card.update({
+        where: { id: source.id },
+        data: {
+          groupId,
+          columnId: target.columnId,
+          position: nextPosition,
         },
-        votes: true,
-      },
+      });
+      const groupedMembers = await tx.card.findMany({
+        where: { groupId },
+        select: { id: true },
+      });
+      await this.migrateCardVotesToGroup(
+        tx,
+        retroId,
+        groupId,
+        groupedMembers.map((m) => m.id),
+        retro.maxVotesPerCard,
+      );
+      await this.dissolveIfOrphan(oldGroupId, tx, retro.maxVotesPerCard);
     });
 
-    this.events.emit(retroId, 'card-updated', updatedSource);
+    await this.emitCardUpdated(retroId, source.id);
+    return this.getBoard(retroId, user);
+  }
+
+  async ungroupCards(user: JwtPayload, retroId: string, dto: UngroupCardsDto) {
+    const retro = await this.getRetroOrThrow(retroId);
+    if (retro.status !== RetroStatus.grouping) {
+      throw new BadRequestException('Ungrouping only allowed in grouping phase');
+    }
+    await this.requireParticipant(user, retroId);
+
+    const card = await this.prisma.card.findFirst({
+      where: { id: dto.cardId, retroId },
+    });
+    if (!card) throw new NotFoundException('Card not found');
+
+    let destColumnId = card.columnId;
+    if (dto.columnId) {
+      const column = await this.prisma.retroColumn.findFirst({
+        where: { id: dto.columnId, retroId },
+      });
+      if (!column) throw new NotFoundException('Column not found');
+      destColumnId = column.id;
+    }
+
+    this.assertSameColumnUnlessAllowed(retro, card.columnId, destColumnId);
+
+    const ungroupAll = !!dto.ungroupAll && !!card.groupId;
+    if (!card.groupId && destColumnId === card.columnId) {
+      return this.getBoard(retroId, user);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (ungroupAll && card.groupId) {
+        const oldGroupId = card.groupId;
+        const members = await tx.card.findMany({
+          where: { groupId: oldGroupId },
+          orderBy: { position: 'asc' },
+        });
+        if (members[0]) {
+          await this.convertGroupVotesToCard(
+            tx,
+            oldGroupId,
+            members[0].id,
+            retro.maxVotesPerCard,
+          );
+        }
+        const nextPosition = await this.nextLoosePosition(
+          retroId,
+          destColumnId,
+          members.map((m) => m.id),
+          tx,
+        );
+        for (const [index, member] of members.entries()) {
+          await tx.card.update({
+            where: { id: member.id },
+            data: {
+              groupId: null,
+              columnId: destColumnId,
+              position: nextPosition + index,
+            },
+          });
+        }
+        await this.dissolveIfOrphan(oldGroupId, tx, retro.maxVotesPerCard);
+        return;
+      }
+
+      const oldGroupId = card.groupId;
+      const nextPosition = await this.nextLoosePosition(
+        retroId,
+        destColumnId,
+        [card.id],
+        tx,
+      );
+      await tx.card.update({
+        where: { id: card.id },
+        data: {
+          groupId: null,
+          columnId: destColumnId,
+          position: nextPosition,
+        },
+      });
+      await this.dissolveIfOrphan(oldGroupId, tx, retro.maxVotesPerCard);
+    });
+
+    await this.emitCardUpdated(retroId, card.id);
     return this.getBoard(retroId, user);
   }
 
@@ -795,6 +955,7 @@ export class RetrosService {
     }
 
     const participant = await this.requireParticipant(user, retroId);
+    await this.collapseGroupedCardVotes(retroId, retro.maxVotesPerCard);
 
     if (dto.cardId) {
       const card = await this.prisma.card.findFirst({
@@ -828,14 +989,21 @@ export class RetrosService {
       },
     });
 
-    const otherVotes = await this.prisma.vote.findMany({
-      where: {
-        retroId,
-        participantId: participant.id,
-        ...(existing ? { NOT: { id: existing.id } } : {}),
-      },
-    });
-    const otherTotal = otherVotes.reduce((sum, v) => sum + v.count, 0);
+    const [otherVotes, groupedCards] = await Promise.all([
+      this.prisma.vote.findMany({
+        where: {
+          retroId,
+          participantId: participant.id,
+          ...(existing ? { NOT: { id: existing.id } } : {}),
+        },
+      }),
+      this.prisma.card.findMany({
+        where: { retroId, groupId: { not: null } },
+        select: { id: true },
+      }),
+    ]);
+    const groupedCardIds = new Set(groupedCards.map((c) => c.id));
+    const otherTotal = this.quotaVoteTotal(otherVotes, groupedCardIds);
     if (otherTotal + dto.count > retro.votesPerParticipant) {
       throw new BadRequestException('Vote limit exceeded');
     }
@@ -864,7 +1032,7 @@ export class RetrosService {
     const myVotes = await this.prisma.vote.findMany({
       where: { retroId, participantId: participant.id },
     });
-    const myVoteTotal = myVotes.reduce((s, v) => s + v.count, 0);
+    const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
     if (
       myVoteTotal >= retro.votesPerParticipant &&
       !participant.votesReady
@@ -1119,6 +1287,7 @@ export class RetrosService {
     user: JwtPayload,
     forReport = false,
   ) {
+    await this.collapseGroupedCardVotes(retroId);
     const retro = await this.prisma.retrospective.findUnique({
       where: { id: retroId },
       include: boardInclude,
@@ -1161,13 +1330,16 @@ export class RetrosService {
       };
     });
 
+    const groupedCardIds = new Set(
+      retro.cards.filter((c) => c.groupId).map((c) => c.id),
+    );
     const myCommentCount = participant
       ? cards.filter((c) => c.authorId === participant.id).length
       : 0;
     const myVotes = participant
       ? retro.votes.filter((v) => v.participantId === participant.id)
       : [];
-    const myVoteTotal = myVotes.reduce((s, v) => s + v.count, 0);
+    const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
 
     const commentProgress = retro.participants.map((p) => {
       const commentCount = retro.cards.filter((c) => c.authorId === p.id).length;
@@ -1185,9 +1357,10 @@ export class RetrosService {
     const readyCount = commentProgress.filter((p) => p.isReady).length;
 
     const voteProgressParticipants = retro.participants.map((p) => {
-      const voteCount = retro.votes
-        .filter((v) => v.participantId === p.id)
-        .reduce((s, v) => s + v.count, 0);
+      const voteCount = this.quotaVoteTotal(
+        retro.votes.filter((v) => v.participantId === p.id),
+        groupedCardIds,
+      );
       const name =
         p.guestName ?? p.user?.name ?? (p.isGuest ? 'Invitado' : 'Participante');
       return {
@@ -1349,6 +1522,258 @@ export class RetrosService {
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     });
     return header?.id ?? card.id;
+  }
+
+  private assertSameColumnUnlessAllowed(
+    retro: { allowCrossColumnGrouping: boolean },
+    sourceColumnId: string,
+    destColumnId: string,
+  ) {
+    if (retro.allowCrossColumnGrouping) return;
+    if (sourceColumnId !== destColumnId) {
+      throw new BadRequestException(
+        'Solo se pueden agrupar tarjetas de la misma columna',
+      );
+    }
+  }
+
+  private quotaVoteTotal(
+    votes: { cardId: string | null; count: number }[],
+    groupedCardIds: Set<string>,
+  ) {
+    return votes
+      .filter((v) => !v.cardId || !groupedCardIds.has(v.cardId))
+      .reduce((s, v) => s + v.count, 0);
+  }
+
+  private async collapseGroupedCardVotes(
+    retroId: string,
+    maxVotesPerCard?: number,
+  ) {
+    const stale = await this.prisma.vote.findMany({
+      where: { retroId, card: { groupId: { not: null } } },
+      select: { card: { select: { groupId: true } } },
+    });
+    if (!stale.length) return false;
+    const cap =
+      maxVotesPerCard ??
+      (
+        await this.prisma.retrospective.findUnique({
+          where: { id: retroId },
+          select: { maxVotesPerCard: true },
+        })
+      )?.maxVotesPerCard;
+    if (cap == null) return false;
+    const groupIds = [
+      ...new Set(
+        stale
+          .map((v) => v.card?.groupId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    await this.prisma.$transaction(async (tx) => {
+      for (const groupId of groupIds) {
+        const members = await tx.card.findMany({
+          where: { groupId },
+          select: { id: true },
+        });
+        await this.migrateCardVotesToGroup(
+          tx,
+          retroId,
+          groupId,
+          members.map((m) => m.id),
+          cap,
+        );
+      }
+    });
+    return true;
+  }
+
+  private async migrateCardVotesToGroup(
+    tx: Prisma.TransactionClient,
+    retroId: string,
+    groupId: string,
+    memberIds: string[],
+    maxVotesPerCard: number,
+  ) {
+    if (!memberIds.length) return;
+    const cardVotes = await tx.vote.findMany({
+      where: { retroId, cardId: { in: memberIds } },
+    });
+    if (!cardVotes.length) return;
+
+    const byParticipant = new Map<string, typeof cardVotes>();
+    for (const vote of cardVotes) {
+      const list = byParticipant.get(vote.participantId) ?? [];
+      list.push(vote);
+      byParticipant.set(vote.participantId, list);
+    }
+
+    for (const [participantId, votes] of byParticipant) {
+      const migrated = Math.max(...votes.map((v) => v.count));
+      const existing = await tx.vote.findFirst({
+        where: { participantId, groupId },
+      });
+      const next = Math.min(
+        maxVotesPerCard,
+        Math.max(migrated, existing?.count ?? 0),
+      );
+      await tx.vote.deleteMany({
+        where: { id: { in: votes.map((v) => v.id) } },
+      });
+      if (next <= 0) {
+        if (existing) {
+          await tx.vote.delete({ where: { id: existing.id } });
+        }
+        continue;
+      }
+      if (existing) {
+        await tx.vote.update({
+          where: { id: existing.id },
+          data: { count: next },
+        });
+      } else {
+        await tx.vote.create({
+          data: {
+            retroId,
+            participantId,
+            groupId,
+            cardId: null,
+            count: next,
+          },
+        });
+      }
+    }
+  }
+
+  private async mergeGroupVotes(
+    tx: Prisma.TransactionClient,
+    fromGroupId: string,
+    toGroupId: string,
+    maxVotesPerCard: number,
+  ) {
+    if (fromGroupId === toGroupId) return;
+    const fromVotes = await tx.vote.findMany({
+      where: { groupId: fromGroupId },
+    });
+    for (const vote of fromVotes) {
+      const existing = await tx.vote.findFirst({
+        where: { participantId: vote.participantId, groupId: toGroupId },
+      });
+      const next = Math.min(
+        maxVotesPerCard,
+        Math.max(vote.count, existing?.count ?? 0),
+      );
+      if (existing) {
+        await tx.vote.update({
+          where: { id: existing.id },
+          data: { count: next },
+        });
+        await tx.vote.delete({ where: { id: vote.id } });
+      } else if (next <= 0) {
+        await tx.vote.delete({ where: { id: vote.id } });
+      } else {
+        await tx.vote.update({
+          where: { id: vote.id },
+          data: { groupId: toGroupId, count: next },
+        });
+      }
+    }
+  }
+
+  private async convertGroupVotesToCard(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+    cardId: string,
+    maxVotesPerCard: number,
+  ) {
+    const groupVotes = await tx.vote.findMany({ where: { groupId } });
+    for (const vote of groupVotes) {
+      const existing = await tx.vote.findFirst({
+        where: { participantId: vote.participantId, cardId },
+      });
+      const next = Math.min(
+        maxVotesPerCard,
+        Math.max(vote.count, existing?.count ?? 0),
+      );
+      if (existing) {
+        await tx.vote.update({
+          where: { id: existing.id },
+          data: { count: next },
+        });
+        await tx.vote.delete({ where: { id: vote.id } });
+      } else {
+        await tx.vote.update({
+          where: { id: vote.id },
+          data: { groupId: null, cardId, count: next },
+        });
+      }
+    }
+  }
+
+  private async dissolveIfOrphan(
+    groupId: string | null | undefined,
+    tx: Prisma.TransactionClient,
+    maxVotesPerCard: number,
+  ) {
+    if (!groupId) return;
+    const remaining = await tx.card.findMany({
+      where: { groupId },
+      select: { id: true },
+    });
+    if (remaining.length > 1) return;
+    if (remaining.length === 1) {
+      await this.convertGroupVotesToCard(
+        tx,
+        groupId,
+        remaining[0].id,
+        maxVotesPerCard,
+      );
+      await tx.card.update({
+        where: { id: remaining[0].id },
+        data: { groupId: null },
+      });
+    }
+    const group = await tx.cardGroup.findUnique({ where: { id: groupId } });
+    if (group) {
+      await tx.cardGroup.delete({ where: { id: groupId } });
+    }
+  }
+
+  private async nextLoosePosition(
+    retroId: string,
+    columnId: string,
+    excludeIds: string[],
+    tx: Prisma.TransactionClient,
+  ) {
+    const loose = await tx.card.findMany({
+      where: {
+        retroId,
+        columnId,
+        groupId: null,
+        ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
+      },
+      select: { position: true },
+    });
+    if (!loose.length) return 0;
+    return Math.max(...loose.map((c) => c.position)) + 1;
+  }
+
+  private async emitCardUpdated(retroId: string, cardId: string) {
+    const updated = await this.prisma.card.findFirst({
+      where: { id: cardId, retroId },
+      include: {
+        author: {
+          include: {
+            user: { select: userPublicSelect },
+          },
+        },
+        votes: true,
+      },
+    });
+    if (updated) {
+      this.events.emit(retroId, 'card-updated', updated);
+    }
   }
 
   private async getRetroOrThrow(retroId: string) {

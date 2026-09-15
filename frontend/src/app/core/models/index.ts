@@ -282,6 +282,7 @@ export interface RetroBoard {
   votesPerParticipant: number;
   maxVotesPerCard: number;
   allowAnonymous: boolean;
+  allowCrossColumnGrouping?: boolean;
   timerSeconds: number | null;
   timerEndsAt: string | null;
   timerPausedRemaining?: number | null;
@@ -325,6 +326,7 @@ export interface CreateRetroPayload {
   votesPerParticipant?: number;
   maxVotesPerCard?: number;
   allowAnonymous?: boolean;
+  allowCrossColumnGrouping?: boolean;
   timerSeconds?: number | null;
 }
 

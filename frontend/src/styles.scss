@@ -414,3 +414,12 @@ p {
     --shadow: none;
   }
 }
+
+.cdk-drag-preview {
+  z-index: 2000;
+  pointer-events: none;
+  box-sizing: border-box;
+  box-shadow:
+    var(--shadow),
+    0 12px 28px color-mix(in srgb, var(--color-text) 28%, transparent);
+}

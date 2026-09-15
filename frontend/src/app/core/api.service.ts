@@ -253,11 +253,24 @@ export class ApiService {
     return this.http.delete(`${this.base}/retros/${id}/cards/${cardId}`);
   }
 
-  groupCards(id: string, sourceCardId: string, targetCardId: string) {
+  groupCards(
+    id: string,
+    sourceCardId: string,
+    targetCardId: string,
+    opts?: { moveGroup?: boolean },
+  ) {
     return this.http.post(`${this.base}/retros/${id}/group`, {
       sourceCardId,
       targetCardId,
+      ...(opts?.moveGroup ? { moveGroup: true } : {}),
     });
+  }
+
+  ungroupCards(
+    id: string,
+    body: { cardId: string; columnId?: string; ungroupAll?: boolean },
+  ) {
+    return this.http.post(`${this.base}/retros/${id}/ungroup`, body);
   }
 
   vote(
