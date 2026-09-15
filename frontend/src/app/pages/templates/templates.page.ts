@@ -29,7 +29,19 @@ import { ToastService } from '../../core/toast.service';
 
       <div class="template-list">
         @for (tpl of templates(); track tpl.id) {
-          <div class="card template-card">
+          <div
+            class="card template-card"
+            [class.has-theme]="!!tpl.backgroundColor || !!tpl.backgroundImageUrl"
+            [style.background-color]="tpl.backgroundColor || null"
+          >
+            @if (tpl.backgroundImageUrl) {
+              <div
+                class="template-card-bg"
+                [style.background-image]="
+                  'url(' + tpl.backgroundImageUrl + ')'
+                "
+              ></div>
+            }
             <div class="template-main">
               <h2>{{ tpl.name }}</h2>
               @if (tpl.description) {
@@ -96,13 +108,39 @@ import { ToastService } from '../../core/toast.service';
       gap: 0.85rem;
     }
     .template-card {
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
       padding: 1.15rem 1.25rem;
       display: flex;
       justify-content: space-between;
       gap: 1rem;
       align-items: flex-start;
     }
+    .template-card.has-theme {
+      background-image: none;
+    }
+    .template-card.has-theme::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+    }
+    .template-card-bg {
+      position: absolute;
+      inset: -10px;
+      z-index: 0;
+      pointer-events: none;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      filter: blur(6px);
+    }
     .template-main {
+      position: relative;
+      z-index: 2;
       flex: 1;
       min-width: 0;
     }
@@ -148,9 +186,15 @@ import { ToastService } from '../../core/toast.service';
       font-size: 0.95rem;
     }
     .template-actions {
+      position: relative;
+      z-index: 2;
       display: flex;
       gap: 0.35rem;
       flex-shrink: 0;
+    }
+    .template-card.has-theme .icon-btn {
+      background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+      border-color: var(--color-border);
     }
     .plus-icon {
       width: 1.05em;
