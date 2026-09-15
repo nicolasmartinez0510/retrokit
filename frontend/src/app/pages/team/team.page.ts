@@ -4,11 +4,15 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { parseAvatarChanged } from '../../core/avatars';
+import { daysUntilDue, dueUrgencyLabel, formatDueDate } from '../../core/dates';
 import { FavoriteTeamsService } from '../../core/favorite-teams.service';
 import { httpErrorMessage } from '../../core/http-error';
 import { JoinRequestService } from '../../core/join-request.service';
 import {
+  ACTION_STATUS_LABELS,
+  ActionItem,
   PHASE_LABELS,
+  RetroSummary,
   TeamDetail,
   TeamJoinRequest,
   TeamMember,
@@ -26,31 +30,28 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       @if (team(); as t) {
         <div class="page-header">
           <div>
-            <h1>{{ t.name }}</h1>
-            <p class="subtitle">
-              Código de equipo:
-              <strong>{{ t.inviteCode }}</strong>
-            </p>
+            <div class="title-row">
+              <h1>{{ t.name }}</h1>
+              <button
+                type="button"
+                class="star-btn"
+                [class.on]="t.favorited"
+                [attr.aria-pressed]="!!t.favorited"
+                [attr.aria-label]="
+                  t.favorited ? 'Quitar de destacados' : 'Destacar equipo'
+                "
+                [title]="t.favorited ? 'Quitar de destacados' : 'Destacar equipo'"
+                (click)="toggleFavorite()"
+              >
+                <svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="header-actions">
-            <button
-              type="button"
-              class="btn-secondary star-btn"
-              [class.on]="t.favorited"
-              [attr.aria-pressed]="!!t.favorited"
-              [attr.aria-label]="
-                t.favorited ? 'Quitar de destacados' : 'Destacar equipo'
-              "
-              [title]="t.favorited ? 'Quitar de destacados' : 'Destacar equipo'"
-              (click)="toggleFavorite()"
-            >
-              <svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
-                />
-              </svg>
-              {{ t.favorited ? 'Destacado' : 'Destacar' }}
-            </button>
             <button
               type="button"
               class="btn-primary"
@@ -63,30 +64,42 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
               </svg>
               Nueva retrospectiva
             </button>
-            <a class="btn-secondary" [routerLink]="['/teams', t.id, 'actions']"
-              >Tablero de acciones</a
-            >
-          </div>
-        </div>
-
-        <section class="card panel invite-panel">
-          <h2>Invitar miembros</h2>
-          <p class="invite-hint">
-            Compartí este enlace para que se sumen al equipo (con cuenta). También
-            pueden pegar el código en el panel.
-          </p>
-          <div class="invite-row">
-            <code>{{ teamInviteUrl(t.inviteCode) }}</code>
             <button
               type="button"
-              class="btn-secondary btn-sm"
-              [class.copied]="inviteCopied()"
-              (click)="copyTeamInvite(t.inviteCode)"
+              class="btn-secondary"
+              (click)="openInviteModal()"
             >
-              {{ inviteCopied() ? 'Copiado' : 'Copiar enlace' }}
+              <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"
+                />
+              </svg>
+              Invitar
             </button>
+            <a class="btn-secondary" [routerLink]="['/teams', t.id, 'actions']">
+              <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z"
+                />
+              </svg>
+              Tablero de acciones
+            </a>
+            @if (isFacilitator()) {
+              <button
+                type="button"
+                class="btn-danger"
+                (click)="openDeleteModal()"
+              >
+                <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                  />
+                </svg>
+                Borrar equipo
+              </button>
+            }
           </div>
-        </section>
+        </div>
 
         @if (reminder()) {
           <div class="card reminder">
@@ -94,120 +107,229 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
           </div>
         }
 
-        @if (error() && !showCreateModal() && !showDeleteModal()) {
+        @if (error() && !showCreateModal() && !showDeleteModal() && !showInviteModal()) {
           <p class="form-error">{{ error() }}</p>
         }
 
-        <section class="section">
-          <h2>Miembros</h2>
-          <div class="member-list">
-            @for (req of t.joinRequests ?? []; track req.id) {
-              <div class="card member-row pending-member">
-                <div class="member-info">
-                  <app-user-avatar
-                    [avatarId]="req.user.avatarId"
-                    [ownerId]="req.user.id"
-                    [seed]="req.user.id"
-                    [name]="req.user.name"
-                    size="sm"
-                  />
-                  <strong>{{ req.user.name }}</strong>
-                  <span class="badge">Nuevo · pendiente</span>
+        <div class="team-columns">
+          <section class="section column-section">
+            <h2>Miembros</h2>
+            <div class="column-scroll member-list">
+              @for (req of t.joinRequests ?? []; track req.id) {
+                <div class="card member-row pending-member">
+                  <div class="member-info">
+                    <app-user-avatar
+                      [avatarId]="req.user.avatarId"
+                      [ownerId]="req.user.id"
+                      [seed]="req.user.id"
+                      [name]="req.user.name"
+                      size="sm"
+                    />
+                    <strong>{{ req.user.name }}</strong>
+                    <span class="badge">Nuevo · pendiente</span>
+                  </div>
+                  @if (isFacilitator()) {
+                    <div class="member-actions">
+                      <button
+                        type="button"
+                        class="btn-primary btn-sm"
+                        [disabled]="resolvingRequestId() === req.id"
+                        (click)="acceptJoin(req)"
+                      >
+                        Confirmar
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-danger btn-sm"
+                        [disabled]="resolvingRequestId() === req.id"
+                        (click)="rejectJoin(req)"
+                      >
+                        Rechazar
+                      </button>
+                    </div>
+                  }
                 </div>
-                @if (isFacilitator()) {
-                  <div class="member-actions">
-                    <button
-                      type="button"
-                      class="btn-primary btn-sm"
-                      [disabled]="resolvingRequestId() === req.id"
-                      (click)="acceptJoin(req)"
-                    >
-                      Confirmar
-                    </button>
+              }
+              @for (m of t.members; track m.id) {
+                <div class="card member-row">
+                  <div class="member-info">
+                    <app-user-avatar
+                      [avatarId]="m.user.avatarId"
+                      [ownerId]="m.user.id"
+                      [seed]="m.user.id"
+                      [name]="m.user.name"
+                      size="sm"
+                    />
+                    <strong>{{ m.user.name }}</strong>
+                    <span class="badge">{{ roleLabel(m.role) }}</span>
+                  </div>
+                  @if (isFacilitator() && m.user.id !== currentUserId()) {
                     <button
                       type="button"
                       class="btn-danger btn-sm"
-                      [disabled]="resolvingRequestId() === req.id"
-                      (click)="rejectJoin(req)"
+                      (click)="removeMember(m)"
                     >
-                      Rechazar
+                      Sacar
                     </button>
-                  </div>
-                }
-              </div>
-            }
-            @for (m of t.members; track m.id) {
-              <div class="card member-row">
-                <div class="member-info">
-                  <app-user-avatar
-                    [avatarId]="m.user.avatarId"
-                    [ownerId]="m.user.id"
-                    [seed]="m.user.id"
-                    [name]="m.user.name"
-                    size="sm"
-                  />
-                  <strong>{{ m.user.name }}</strong>
-                  <span class="badge">{{ roleLabel(m.role) }}</span>
+                  }
                 </div>
-                @if (isFacilitator() && m.user.id !== currentUserId()) {
-                  <button
-                    type="button"
-                    class="btn-danger btn-sm"
-                    (click)="removeMember(m)"
-                  >
-                    Sacar
-                  </button>
-                }
-              </div>
-            }
-          </div>
-        </section>
-
-        <section class="section">
-          <h2>Historial</h2>
-          <div class="retro-list">
-            @for (r of t.retrospectives; track r.id) {
-              <div class="card retro-row">
-                <a [routerLink]="['/retros', r.id]">
-                  <strong>{{ r.title }}</strong>
-                  <span class="badge">{{ phaseLabel(r.status) }}</span>
-                </a>
-                @if (isFacilitator()) {
-                  <button
-                    type="button"
-                    class="icon-btn trash"
-                    title="Borrar"
-                    aria-label="Borrar retrospectiva"
-                    (click)="deleteRetro(r.id, r.title)"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                      />
-                    </svg>
-                  </button>
-                }
-              </div>
-            } @empty {
-              <p class="empty-state">Todavía no hay retrospectivas.</p>
-            }
-          </div>
-        </section>
-
-        @if (isFacilitator()) {
-          <section class="card panel danger-panel">
-            <h2>Zona de peligro</h2>
-            <p class="danger-hint">
-              Borrar el equipo elimina retrospectivas, miembros y acciones. No se
-              puede deshacer.
-            </p>
-            <button type="button" class="btn-danger" (click)="openDeleteModal()">
-              Borrar equipo
-            </button>
+              }
+            </div>
           </section>
-        }
+
+          <section class="section column-section">
+            <h2>Historial</h2>
+            <div class="column-scroll retro-list">
+              @for (r of t.retrospectives; track r.id) {
+                <div class="card retro-row">
+                  <a [routerLink]="['/retros', r.id]">
+                    <div class="retro-heading">
+                      <strong>{{ r.title }}</strong>
+                      <span class="badge">{{ phaseLabel(r.status) }}</span>
+                    </div>
+                    @if (r.participants?.length) {
+                      <div class="avatar-stack">
+                        @for (p of visibleParticipants(r); track p.id) {
+                          <app-user-avatar
+                            [avatarId]="p.avatarId"
+                            [ownerId]="p.ownerId"
+                            [seed]="p.id"
+                            [name]="p.name"
+                            size="sm"
+                          />
+                        }
+                        @if (hiddenParticipantCount(r); as extra) {
+                          <span
+                            class="avatar-more"
+                            [title]="hiddenParticipantNames(r)"
+                          >
+                            +{{ extra }}
+                          </span>
+                        }
+                      </div>
+                    }
+                  </a>
+                  @if (isFacilitator()) {
+                    <button
+                      type="button"
+                      class="icon-btn trash"
+                      title="Borrar"
+                      aria-label="Borrar retrospectiva"
+                      (click)="deleteRetro(r.id, r.title)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                        />
+                      </svg>
+                    </button>
+                  }
+                </div>
+              } @empty {
+                <p class="empty-state">Todavía no hay retrospectivas.</p>
+              }
+            </div>
+          </section>
+        </div>
+
+        <section class="section due-section">
+          <h2>Por caducar</h2>
+          <div class="due-list">
+            @for (a of expiringActions(); track a.id) {
+              <a
+                class="card due-row"
+                [routerLink]="['/teams', t.id, 'actions']"
+                [queryParams]="actionBoardParams(a)"
+              >
+                <div class="due-main">
+                  <strong>{{ a.title }}</strong>
+                  <span class="due-sub">
+                    @if (a.owner) {
+                      <app-user-avatar
+                        [avatarId]="a.owner.avatarId"
+                        [ownerId]="a.owner.id"
+                        [seed]="a.owner.id"
+                        [name]="a.owner.name"
+                        size="sm"
+                      />
+                      {{ a.owner.name }}
+                    } @else {
+                      Sin asignar
+                    }
+                    @if (a.retro?.title) {
+                      <span class="due-sep">·</span>
+                      {{ a.retro.title }}
+                    }
+                  </span>
+                </div>
+                <div class="due-meta">
+                  <span class="badge">{{ statusLabel(a.status) }}</span>
+                  <span class="due-badge" [class.overdue]="isOverdue(a)">
+                    {{ urgencyLabel(a.dueDate) }}
+                  </span>
+                  @if (dueDateLabel(a.dueDate)) {
+                    <span class="due-date">{{ dueDateLabel(a.dueDate) }}</span>
+                  }
+                </div>
+              </a>
+            } @empty {
+              <p class="empty-state">No hay acciones por vencer en los próximos 14 días.</p>
+            }
+          </div>
+        </section>
       }
     </div>
+
+    @if (showInviteModal() && team(); as t) {
+      <div
+        class="modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invite-members-title"
+        (click)="closeInviteModal()"
+      >
+        <div class="card invite-modal" (click)="$event.stopPropagation()">
+          <h2 id="invite-members-title">Invitar miembros</h2>
+          <p class="invite-hint">
+            Compartí el enlace o el código para que se sumen al equipo (con
+            cuenta). También pueden pegar el código en el panel.
+          </p>
+          <div class="invite-block">
+            <span class="invite-label">Enlace</span>
+            <div class="invite-row">
+              <code>{{ teamInviteUrl(t.inviteCode) }}</code>
+              <button
+                type="button"
+                class="btn-secondary btn-sm"
+                [class.copied]="copiedKind() === 'link'"
+                (click)="copyInvite('link', t.inviteCode)"
+              >
+                {{ copiedKind() === 'link' ? 'Copiado' : 'Copiar' }}
+              </button>
+            </div>
+          </div>
+          <div class="invite-block">
+            <span class="invite-label">Código de equipo</span>
+            <div class="invite-row">
+              <code>{{ t.inviteCode }}</code>
+              <button
+                type="button"
+                class="btn-secondary btn-sm"
+                [class.copied]="copiedKind() === 'code'"
+                (click)="copyInvite('code', t.inviteCode)"
+              >
+                {{ copiedKind() === 'code' ? 'Copiado' : 'Copiar' }}
+              </button>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-ghost" (click)="closeInviteModal()">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    }
 
     @if (showCreateModal()) {
       <div
@@ -380,11 +502,40 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       gap: 0.65rem;
       align-items: center;
     }
-    .star-btn .star-icon {
-      width: 1.05em;
-      height: 1.05em;
-      display: block;
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 0.3em;
+      min-width: 0;
+      font-size: 1.75rem;
+      h1 {
+        min-width: 0;
+        font-size: 1em;
+        line-height: 1;
+      }
+    }
+    .star-btn {
       flex-shrink: 0;
+      width: 1.15em;
+      height: 1.15em;
+      padding: 0;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      translate: 0 -0.06em;
+    }
+    .star-btn:hover,
+    .star-btn.on {
+      color: var(--color-brand);
+    }
+    .star-icon {
+      width: 0.72em;
+      height: 0.72em;
+      display: block;
       fill: none;
       stroke: currentColor;
       stroke-width: 1.5;
@@ -401,7 +552,17 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       flex-shrink: 0;
       fill: currentColor;
     }
-    .panel { padding: 1.25rem; margin-bottom: 1.5rem; }
+    .header-icon {
+      width: 1.05em;
+      height: 1.05em;
+      display: block;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
     .create-form { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 0.85rem; }
     .settings-grid {
       display: grid;
@@ -430,6 +591,28 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       margin-right: 0.25rem;
     }
     .section { margin-bottom: 1.5rem; h2 { margin-bottom: 0.75rem; font-size: 1.1rem; } }
+    .team-columns {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1.25rem;
+      margin-bottom: 1.5rem;
+      align-items: stretch;
+    }
+    .column-section {
+      margin-bottom: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 24rem;
+      h2 { flex-shrink: 0; }
+    }
+    .column-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: 0.15rem;
+    }
     .member-list { display: flex; flex-direction: column; gap: 0.5rem; }
     .member-row {
       padding: 0.75rem 1rem;
@@ -453,11 +636,6 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       gap: 0.5rem;
       min-width: 0;
     }
-    .danger-panel {
-      padding: 1.15rem 1.25rem;
-      border-color: var(--color-danger);
-      h2 { margin: 0 0 0.4rem; font-size: 1.05rem; }
-    }
     .danger-hint {
       margin: 0 0 0.85rem;
       color: var(--color-text-muted);
@@ -466,21 +644,122 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
     }
     .retro-list { display: flex; flex-direction: column; gap: 0.6rem; }
     .retro-row {
-      padding: 0.9rem 1rem;
+      padding: 0.75rem 0.9rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.6rem;
       a {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 0.75rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.45rem;
         flex: 1;
         text-decoration: none;
         color: inherit;
         min-width: 0;
+        &:hover { text-decoration: none; }
       }
+    }
+    .retro-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      min-width: 0;
+      strong {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .badge { flex-shrink: 0; }
+    }
+    .avatar-stack {
+      display: flex;
+      align-items: center;
+      app-user-avatar {
+        position: relative;
+        box-shadow: 0 0 0 2px var(--color-bg);
+        margin-left: -0.45rem;
+        &:first-child { margin-left: 0; }
+        &:hover { z-index: 2; }
+      }
+    }
+    .avatar-more {
+      margin-left: 0.35rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--color-text-muted);
+    }
+    .column-scroll .empty-state {
+      padding: 1.5rem 0.75rem;
+    }
+    .due-section {
+      margin-bottom: 0;
+    }
+    .due-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 0.6rem;
+      max-height: 18rem;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: 0.15rem;
+    }
+    .due-row {
+      padding: 0.8rem 0.95rem;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.45rem;
+      text-decoration: none;
+      color: inherit;
+      min-width: 0;
+      &:hover { text-decoration: none; }
+    }
+    .due-main {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      min-width: 0;
+      strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+    .due-sub {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.3rem;
+      min-width: 0;
+      font-size: 0.82rem;
+      color: var(--color-text-muted);
+    }
+    .due-sep { opacity: 0.65; }
+    .due-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .due-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--color-brand);
+    }
+    .due-badge.overdue {
+      color: var(--color-danger);
+    }
+    .due-date {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+    }
+    .due-list .empty-state {
+      grid-column: 1 / -1;
+      padding: 1.5rem 0.75rem;
     }
     .icon-btn {
       appearance: none;
@@ -517,16 +796,22 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       color: var(--color-brand);
       font-weight: 600;
     }
-    .invite-panel {
-      padding: 1.15rem 1.25rem;
-      margin-bottom: 1.25rem;
-      h2 { margin: 0 0 0.4rem; font-size: 1.05rem; }
-    }
     .invite-hint {
       margin: 0 0 0.85rem;
       color: var(--color-text-muted);
       font-size: 0.9rem;
       line-height: 1.4;
+    }
+    .invite-block {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      & + .invite-block { margin-top: 0.85rem; }
+    }
+    .invite-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--color-text-muted);
     }
     .invite-row {
       display: grid;
@@ -563,13 +848,21 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       padding: 1.35rem 1.4rem 1.25rem;
     }
     .create-modal h2,
-    .delete-modal h2 {
+    .delete-modal h2,
+    .invite-modal h2 {
       margin: 0;
       font-size: 1.15rem;
     }
-    .delete-modal {
-      width: min(460px, 100%);
+    .delete-modal,
+    .invite-modal {
+      width: min(520px, 100%);
       padding: 1.35rem 1.4rem 1.25rem;
+    }
+    .invite-modal .invite-hint {
+      margin-top: 0.5rem;
+    }
+    .invite-modal .modal-actions {
+      margin-top: 1rem;
     }
     .delete-form {
       display: flex;
@@ -582,6 +875,10 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       justify-content: flex-end;
       flex-wrap: wrap;
       gap: 0.65rem;
+    }
+    @media (max-width: 800px) {
+      .team-columns { grid-template-columns: 1fr; }
+      .column-section { height: 20rem; }
     }
     @media (max-width: 640px) {
       .invite-row { grid-template-columns: 1fr; }
@@ -599,6 +896,7 @@ export class TeamPage implements OnInit, OnDestroy {
   private readonly router = inject(Router);
 
   team = signal<TeamDetail | null>(null);
+  actions = signal<ActionItem[]>([]);
   templates = signal<Template[]>([]);
   title = '';
   templateId = '';
@@ -610,13 +908,17 @@ export class TeamPage implements OnInit, OnDestroy {
   allowCrossColumnGrouping = false;
   error = signal('');
   reminder = signal<number | null>(null);
-  inviteCopied = signal(false);
+  copiedKind = signal<'' | 'link' | 'code'>('');
   showCreateModal = signal(false);
+  showInviteModal = signal(false);
   showDeleteModal = signal(false);
   deletingTeam = signal(false);
   deleteNameConfirm = '';
   resolvingRequestId = signal('');
   private inviteCopyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private readonly maxVisibleParticipants = 6;
+  private readonly dueSoonDays = 14;
 
   constructor() {
     effect(() => {
@@ -658,6 +960,53 @@ export class TeamPage implements OnInit, OnDestroy {
 
   roleLabel(role: string) {
     return role === 'facilitator' ? 'Facilitador' : 'Miembro';
+  }
+
+  visibleParticipants(retro: RetroSummary) {
+    return (retro.participants ?? []).slice(0, this.maxVisibleParticipants);
+  }
+
+  hiddenParticipantCount(retro: RetroSummary) {
+    const extra = (retro.participants?.length ?? 0) - this.maxVisibleParticipants;
+    return extra > 0 ? extra : 0;
+  }
+
+  hiddenParticipantNames(retro: RetroSummary) {
+    return (retro.participants ?? [])
+      .slice(this.maxVisibleParticipants)
+      .map((p) => p.name)
+      .join(', ');
+  }
+
+  expiringActions() {
+    return this.actions()
+      .filter((a) => a.status === 'pending' || a.status === 'doing')
+      .filter((a) => {
+        const days = daysUntilDue(a.dueDate);
+        return days !== null && days <= this.dueSoonDays;
+      })
+      .sort((a, b) => (daysUntilDue(a.dueDate) ?? 0) - (daysUntilDue(b.dueDate) ?? 0));
+  }
+
+  isOverdue(action: ActionItem) {
+    const days = daysUntilDue(action.dueDate);
+    return days !== null && days < 0;
+  }
+
+  urgencyLabel(iso?: string | null) {
+    return dueUrgencyLabel(iso);
+  }
+
+  dueDateLabel(iso?: string | null) {
+    return formatDueDate(iso);
+  }
+
+  statusLabel(status: ActionItem['status']) {
+    return ACTION_STATUS_LABELS[status];
+  }
+
+  actionBoardParams(action: ActionItem) {
+    return { retro: action.retroId || '__none__' };
   }
 
   toggleFavorite() {
@@ -741,6 +1090,16 @@ export class TeamPage implements OnInit, OnDestroy {
     return `${window.location.origin}/join-team/${inviteCode}`;
   }
 
+  openInviteModal() {
+    this.error.set('');
+    this.copiedKind.set('');
+    this.showInviteModal.set(true);
+  }
+
+  closeInviteModal() {
+    this.showInviteModal.set(false);
+  }
+
   openCreateModal() {
     this.error.set('');
     this.allowCrossColumnGrouping = false;
@@ -757,20 +1116,28 @@ export class TeamPage implements OnInit, OnDestroy {
       this.closeDeleteModal();
       return;
     }
-    if (this.showCreateModal()) this.closeCreateModal();
+    if (this.showCreateModal()) {
+      this.closeCreateModal();
+      return;
+    }
+    if (this.showInviteModal()) this.closeInviteModal();
   }
 
-  async copyTeamInvite(inviteCode: string) {
+  async copyInvite(kind: 'link' | 'code', inviteCode: string) {
+    const value =
+      kind === 'link' ? this.teamInviteUrl(inviteCode) : inviteCode;
     try {
-      await navigator.clipboard.writeText(this.teamInviteUrl(inviteCode));
-      this.inviteCopied.set(true);
+      await navigator.clipboard.writeText(value);
+      this.copiedKind.set(kind);
     } catch {
-      this.inviteCopied.set(false);
-      this.error.set('No se pudo copiar el enlace');
+      this.copiedKind.set('');
+      this.error.set(
+        kind === 'link' ? 'No se pudo copiar el enlace' : 'No se pudo copiar el código',
+      );
       return;
     }
     if (this.inviteCopyTimer) clearTimeout(this.inviteCopyTimer);
-    this.inviteCopyTimer = setTimeout(() => this.inviteCopied.set(false), 2200);
+    this.inviteCopyTimer = setTimeout(() => this.copiedKind.set(''), 2200);
   }
 
   deleteRetro(id: string, title: string) {
@@ -827,19 +1194,37 @@ export class TeamPage implements OnInit, OnDestroy {
         ? { ...req, user: { ...req.user, avatarId: event.avatarId } }
         : req,
     );
+    const retrospectives = team.retrospectives.map((r) => ({
+      ...r,
+      participants: (r.participants ?? []).map((p) =>
+        p.ownerId === event.userId ? { ...p, avatarId: event.avatarId } : p,
+      ),
+    }));
     if (
       members.every((m, i) => m === team.members[i]) &&
-      joinRequests.every((req, i) => req === (team.joinRequests ?? [])[i])
+      joinRequests.every((req, i) => req === (team.joinRequests ?? [])[i]) &&
+      retrospectives.every((r, i) => r === team.retrospectives[i])
     ) {
       return;
     }
-    this.team.set({ ...team, members, joinRequests });
+    this.team.set({ ...team, members, joinRequests, retrospectives });
+    this.actions.update((items) =>
+      items.map((a) =>
+        a.owner?.id === event.userId
+          ? { ...a, owner: { ...a.owner, avatarId: event.avatarId } }
+          : a,
+      ),
+    );
   };
 
   reloadTeam() {
     const id = this.route.snapshot.paramMap.get('id');
     if (!id) return;
     this.api.getTeam(id).subscribe((t) => this.team.set(t));
+    this.api.listActions(id).subscribe({
+      next: (items) => this.actions.set(items),
+      error: () => this.actions.set([]),
+    });
   }
 
   acceptJoin(request: TeamJoinRequest) {

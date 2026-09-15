@@ -83,12 +83,20 @@ export interface TeamJoinRequest {
   user: { id: string; name: string; email: string; avatarId?: string | null };
 }
 
+export interface RetroParticipantSummary {
+  id: string;
+  name: string;
+  avatarId?: string | null;
+  ownerId?: string | null;
+}
+
 export interface RetroSummary {
   id: string;
   title: string;
   status: RetroStatus;
   createdAt: string;
   closedAt?: string | null;
+  participants?: RetroParticipantSummary[];
 }
 
 export interface TeamDetail {

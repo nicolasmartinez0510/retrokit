@@ -309,6 +309,11 @@ export class ActionsPage implements OnInit {
     this.teamId = this.route.snapshot.paramMap.get('id')!;
     this.api.getTeam(this.teamId).subscribe((t) => {
       this.team.set(t);
+      const fromQuery = this.route.snapshot.queryParamMap.get('retro');
+      if (fromQuery !== null) {
+        this.retroFilter.set(fromQuery);
+        return;
+      }
       const latest = t.retrospectives[0];
       if (latest) this.retroFilter.set(latest.id);
     });

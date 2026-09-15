@@ -7,11 +7,32 @@ import {
 import { TeamRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeEventsService } from '../realtime/realtime-events.service';
-import { userPublicSelect } from '../common/avatars';
+import {
+  resolveParticipantAvatar,
+  userPublicSelect,
+} from '../common/avatars';
 import { CreateTeamDto, JoinTeamDto, UpdateTeamDto } from './dto/teams.dto';
 
 const joinRequestUserSelect = userPublicSelect;
 const MAX_FAVORITE_TEAMS = 3;
+
+const retroSummarySelect = {
+  id: true,
+  title: true,
+  status: true,
+  createdAt: true,
+  closedAt: true,
+  participants: {
+    orderBy: { id: 'asc' as const },
+    select: {
+      id: true,
+      guestName: true,
+      isGuest: true,
+      avatarId: true,
+      user: { select: { id: true, name: true, avatarId: true } },
+    },
+  },
+} as const;
 
 @Injectable()
 export class TeamsService {
@@ -20,8 +41,8 @@ export class TeamsService {
     private readonly events: RealtimeEventsService,
   ) {}
 
-  create(userId: string, dto: CreateTeamDto) {
-    return this.prisma.team.create({
+  async create(userId: string, dto: CreateTeamDto) {
+    const team = await this.prisma.team.create({
       data: {
         name: dto.name.trim(),
         members: {
@@ -34,16 +55,11 @@ export class TeamsService {
         },
         retrospectives: {
           orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            createdAt: true,
-            closedAt: true,
-          },
+          select: retroSummarySelect,
         },
       },
     });
+    return this.withMappedRetros(team);
   }
 
   async listForUser(userId: string) {
@@ -93,28 +109,23 @@ export class TeamsService {
         },
         retrospectives: {
           orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            createdAt: true,
-            closedAt: true,
-          },
+          select: retroSummarySelect,
         },
       },
     });
     if (!team) throw new NotFoundException('Team not found');
     const favorited = !!membership.favoritedAt;
     const members = team.members.map(({ favoritedAt: _favoritedAt, ...member }) => member);
+    const mapped = this.withMappedRetros({ ...team, members });
     if (membership.role !== TeamRole.facilitator) {
-      return { ...team, members, favorited, joinRequests: [] };
+      return { ...mapped, favorited, joinRequests: [] };
     }
     const joinRequests = await this.prisma.teamJoinRequest.findMany({
       where: { teamId },
       include: { user: { select: joinRequestUserSelect } },
       orderBy: { createdAt: 'asc' },
     });
-    return { ...team, members, favorited, joinRequests };
+    return { ...mapped, favorited, joinRequests };
   }
 
   async setFavorite(userId: string, teamId: string, favorited: boolean) {
@@ -402,6 +413,36 @@ export class TeamsService {
       accepted ? 'team-join-accepted' : 'team-join-rejected',
       { teamId, teamName: teamName ?? '' },
     );
+  }
+
+  private withMappedRetros<
+    T extends {
+      retrospectives: Array<{
+        participants: Array<{
+          id: string;
+          guestName: string | null;
+          isGuest: boolean;
+          avatarId: string | null;
+          user: { id: string; name: string; avatarId: string | null } | null;
+        }>;
+      }>;
+    },
+  >(team: T) {
+    return {
+      ...team,
+      retrospectives: team.retrospectives.map(({ participants, ...retro }) => ({
+        ...retro,
+        participants: participants.map((p) => ({
+          id: p.id,
+          name:
+            p.guestName ??
+            p.user?.name ??
+            (p.isGuest ? 'Invitado' : 'Participante'),
+          avatarId: resolveParticipantAvatar(p),
+          ownerId: p.user?.id ?? p.id,
+        })),
+      })),
+    };
   }
 
   private toJoinRequestDto(
