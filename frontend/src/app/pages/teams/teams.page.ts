@@ -13,6 +13,7 @@ import {
   UserSearchHit,
 } from '../../core/models';
 import { TeamInviteService } from '../../core/team-invite.service';
+import { sortTeams, withFavorite } from '../../core/team-order';
 import { ToastService } from '../../core/toast.service';
 import { TeamCreateJoinModalComponent } from '../../shared/team-create-join-modal.component';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
@@ -119,16 +120,18 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                   </div>
                 </a>
                 <div class="row-actions">
-                  <button
-                    type="button"
-                    class="star-btn"
-                    [class.on]="!!team.favorited"
-                    (click)="toggleFavorite(team)"
-                    [title]="team.favorited ? 'Quitar destacado' : 'Destacar'"
-                  >
-                    ★
-                  </button>
-                  @if (team.role === 'facilitator') {
+                  @if (team.role) {
+                    <button
+                      type="button"
+                      class="star-btn"
+                      [class.on]="!!team.favorited"
+                      (click)="toggleFavorite(team)"
+                      [title]="team.favorited ? 'Quitar destacado' : 'Destacar'"
+                    >
+                      ★
+                    </button>
+                  }
+                  @if (canManageTeam(team)) {
                     <button
                       type="button"
                       class="icon-action"
@@ -740,12 +743,16 @@ export class TeamsPage implements OnInit {
   }
 
   roleLabel(role?: string) {
-    return role === 'facilitator' ? 'Facilitador' : 'Miembro';
+    return role === 'facilitator' ? 'Facilitador' : role ? 'Miembro' : 'Admin';
+  }
+
+  canManageTeam(team: TeamSummary) {
+    return !!this.auth.user()?.isAdmin || team.role === 'facilitator';
   }
 
   reload() {
     this.api.listTeams().subscribe({
-      next: (teams) => this.teams.set(teams),
+      next: (teams) => this.teams.set(sortTeams(teams)),
       error: () => this.error.set('No se pudieron cargar los equipos'),
     });
     this.activeTeams.load();
@@ -759,10 +766,19 @@ export class TeamsPage implements OnInit {
   }
 
   toggleFavorite(team: TeamSummary) {
-    this.favorites.setFavorite(team.id, !team.favorited, team.name).subscribe({
+    const next = !team.favorited;
+    const previousAt = team.favoritedAt;
+    this.teams.update((list) => withFavorite(list, team.id, next));
+    this.activeTeams.markFavorite(team.id, next);
+    this.favorites.setFavorite(team.id, next, team.name).subscribe({
       next: () => this.reload(),
-      error: (e) =>
-        this.toast.error(httpErrorMessage(e, 'No se pudo actualizar')),
+      error: (e) => {
+        this.teams.update((list) =>
+          withFavorite(list, team.id, !next, previousAt),
+        );
+        this.activeTeams.markFavorite(team.id, !next, previousAt);
+        this.toast.error(httpErrorMessage(e, 'No se pudo actualizar'));
+      },
     });
   }
 

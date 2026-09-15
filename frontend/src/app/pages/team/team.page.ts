@@ -27,18 +27,20 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
             <p class="subtitle">Historial del equipo activo</p>
           </div>
           <div class="header-actions">
-            <button
-              type="button"
-              class="btn-primary"
-              (click)="openCreateModal()"
-            >
-              <svg class="plus-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M12 4.5a.75.75 0 0 1 .75.75v6.75h6.75a.75.75 0 0 1 0 1.5h-6.75v6.75a.75.75 0 0 1-1.5 0v-6.75H4.5a.75.75 0 0 1 0-1.5h6.75V5.25A.75.75 0 0 1 12 4.5Z"
-                />
-              </svg>
-              Nueva retrospectiva
-            </button>
+            @if (isFacilitator()) {
+              <button
+                type="button"
+                class="btn-primary"
+                (click)="openCreateModal()"
+              >
+                <svg class="plus-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 4.5a.75.75 0 0 1 .75.75v6.75h6.75a.75.75 0 0 1 0 1.5h-6.75v6.75a.75.75 0 0 1-1.5 0v-6.75H4.5a.75.75 0 0 1 0-1.5h6.75V5.25A.75.75 0 0 1 12 4.5Z"
+                  />
+                </svg>
+                Nueva retrospectiva
+              </button>
+            }
           </div>
         </div>
 
@@ -510,6 +512,7 @@ export class TeamPage implements OnInit, OnDestroy {
   }
 
   isFacilitator() {
+    if (this.auth.user()?.isAdmin) return true;
     const userId = this.auth.user()?.id;
     if (!userId) return false;
     return this.team()?.members.some(

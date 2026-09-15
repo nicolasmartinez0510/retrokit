@@ -428,7 +428,8 @@ export class App {
     if (isChromeOnlyRoute(this.url())) return false;
     // Wait for memberships before showing the tool rail
     if (!this.activeTeams.ready()) return false;
-    return this.activeTeams.hasTeams();
+    // Admin always gets the rail (Equipos / Usuarios); others need a team
+    return this.activeTeams.hasTeams() || !!this.auth.user()?.isAdmin;
   });
 
   constructor() {

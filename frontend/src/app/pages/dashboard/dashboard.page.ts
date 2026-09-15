@@ -1,9 +1,10 @@
 import { Component, OnInit, effect, inject, signal, untracked } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ActiveTeamService } from '../../core/active-team.service';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { daysUntilDue, dueUrgencyLabel, formatDueDate } from '../../core/dates';
 import {
   ACTION_STATUS_LABELS,
@@ -21,31 +22,47 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       @if (!activeTeams.ready()) {
         <div class="empty-state card">Cargando…</div>
       } @else if (!activeTeams.hasTeams()) {
-        <div class="onboarding">
-          <div class="onboarding-card card">
-            <h1>Bienvenido a Retrokit</h1>
-            <p class="subtitle">
-              Creá un equipo o unite con un código para empezar a facilitar
-              retrospectivas.
-            </p>
-            <div class="onboarding-actions">
-              <button
-                type="button"
-                class="btn-primary"
-                (click)="openModal('create')"
-              >
-                Crear equipo
-              </button>
-              <button
-                type="button"
-                class="btn-secondary"
-                (click)="openModal('join')"
-              >
-                Unirme a un equipo
-              </button>
+        @if (isAdmin()) {
+          <div class="onboarding">
+            <div class="onboarding-card card">
+              <h1>Administración</h1>
+              <p class="subtitle">
+                Todavía no hay equipos. Usá Equipos y Usuarios en la barra para
+                administrar la plataforma.
+              </p>
+              <div class="onboarding-actions">
+                <a class="btn-primary" routerLink="/teams">Ir a Equipos</a>
+                <a class="btn-secondary" routerLink="/users">Ir a Usuarios</a>
+              </div>
             </div>
           </div>
-        </div>
+        } @else {
+          <div class="onboarding">
+            <div class="onboarding-card card">
+              <h1>Bienvenido a Retrokit</h1>
+              <p class="subtitle">
+                Creá un equipo o unite con un código para empezar a facilitar
+                retrospectivas.
+              </p>
+              <div class="onboarding-actions">
+                <button
+                  type="button"
+                  class="btn-primary"
+                  (click)="openModal('create')"
+                >
+                  Crear equipo
+                </button>
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  (click)="openModal('join')"
+                >
+                  Unirme a un equipo
+                </button>
+              </div>
+            </div>
+          </div>
+        }
       } @else {
         <div class="page-header">
           <div>
@@ -268,6 +285,8 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
 })
 export class DashboardPage implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
   readonly activeTeams = inject(ActiveTeamService);
 
   recentRetros = signal<
@@ -287,7 +306,22 @@ export class DashboardPage implements OnInit {
 
   private readonly dueSoonDays = 14;
 
+  isAdmin() {
+    return !!this.auth.user()?.isAdmin;
+  }
+
   constructor() {
+    effect(() => {
+      const ready = this.activeTeams.ready();
+      const hasTeams = this.activeTeams.hasTeams();
+      const admin = this.isAdmin();
+      untracked(() => {
+        if (ready && !hasTeams && admin) {
+          void this.router.navigate(['/teams']);
+        }
+      });
+    });
+
     effect(() => {
       const id = this.activeTeams.activeTeamId();
       const ready = this.activeTeams.ready();

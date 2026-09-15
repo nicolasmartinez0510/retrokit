@@ -55,6 +55,23 @@ export class ApiService {
     >(`${this.base}/users/search`, { params: { email } });
   }
 
+  listUsers() {
+    return this.http.get<
+      {
+        id: string;
+        email: string;
+        name: string;
+        avatarId?: string | null;
+        isAdmin: boolean;
+        createdAt: string;
+      }[]
+    >(`${this.base}/users`);
+  }
+
+  deleteUser(id: string) {
+    return this.http.delete<{ deleted: boolean }>(`${this.base}/users/${id}`);
+  }
+
   inviteTeamMember(teamId: string, email: string) {
     return this.http.post<TeamInvite>(`${this.base}/teams/${teamId}/invites`, {
       email,

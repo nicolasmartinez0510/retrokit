@@ -16,6 +16,7 @@ export class SocketService {
   private connectedToken: string | null | undefined = undefined;
   private joinedRetroId: string | null = null;
   private joinedPresence: SocketPresence | null = null;
+  private joinedTeamId: string | null = null;
 
   connect() {
     const token = this.auth.token();
@@ -33,6 +34,9 @@ export class SocketService {
     this.socket.on('connect', () => {
       if (this.joinedRetroId) {
         this.socket?.emit('join-retro', this.joinPayload(this.joinedRetroId));
+      }
+      if (this.joinedTeamId) {
+        this.socket?.emit('join-team', { teamId: this.joinedTeamId });
       }
     });
     return this.socket;
@@ -60,6 +64,25 @@ export class SocketService {
     }
   }
 
+  joinTeam(teamId: string) {
+    const s = this.connect();
+    if (this.joinedTeamId && this.joinedTeamId !== teamId) {
+      s.emit('leave-team', { teamId: this.joinedTeamId });
+    }
+    this.joinedTeamId = teamId;
+    s.emit('join-team', { teamId });
+    return s;
+  }
+
+  leaveTeam(teamId?: string) {
+    const id = teamId ?? this.joinedTeamId;
+    if (!id) return;
+    this.socket?.emit('leave-team', { teamId: id });
+    if (this.joinedTeamId === id) {
+      this.joinedTeamId = null;
+    }
+  }
+
   emit(event: string, payload?: unknown) {
     this.connect().emit(event, payload);
   }
@@ -76,6 +99,7 @@ export class SocketService {
   disconnect() {
     this.joinedRetroId = null;
     this.joinedPresence = null;
+    this.joinedTeamId = null;
     this.socket?.disconnect();
     this.socket = null;
     this.connectedToken = undefined;

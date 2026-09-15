@@ -1,4 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
@@ -140,11 +141,63 @@ const templates = [
   },
 ];
 
+async function seedAdmin() {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD;
+  if (!email || !password) {
+    console.warn('ADMIN_EMAIL / ADMIN_PASSWORD not set — skipping admin seed');
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const existingAdmin = await prisma.user.findFirst({
+    where: { isAdmin: true },
+  });
+
+  if (existingAdmin) {
+    await prisma.user.update({
+      where: { id: existingAdmin.id },
+      data: {
+        email,
+        passwordHash,
+        name: existingAdmin.name || 'Admin',
+        isAdmin: true,
+      },
+    });
+    console.log(`Updated system admin: ${email}`);
+    return;
+  }
+
+  const byEmail = await prisma.user.findUnique({ where: { email } });
+  if (byEmail) {
+    await prisma.user.update({
+      where: { id: byEmail.id },
+      data: { passwordHash, isAdmin: true, name: byEmail.name || 'Admin' },
+    });
+    console.log(`Promoted existing user to system admin: ${email}`);
+    return;
+  }
+
+  await prisma.user.create({
+    data: {
+      email,
+      passwordHash,
+      name: 'Admin',
+      isAdmin: true,
+    },
+  });
+  console.log(`Seeded system admin: ${email}`);
+}
+
 async function upsertTemplate(t) {
-  let row = await prisma.template.findFirst({ where: { name: t.name } });
+  let row = await prisma.template.findFirst({
+    where: { name: t.name, isGlobal: true },
+  });
   if (!row) {
     for (const oldName of t.oldNames || []) {
-      row = await prisma.template.findFirst({ where: { name: oldName } });
+      row = await prisma.template.findFirst({
+        where: { name: oldName, isGlobal: true },
+      });
       if (row) break;
     }
   }
@@ -152,7 +205,7 @@ async function upsertTemplate(t) {
   if (row) {
     await prisma.template.update({
       where: { id: row.id },
-      data: { name: t.name, description: t.description },
+      data: { name: t.name, description: t.description, isGlobal: true },
     });
     const cols = await prisma.templateColumn.findMany({
       where: { templateId: row.id },
@@ -182,6 +235,7 @@ async function upsertTemplate(t) {
       data: {
         name: t.name,
         description: t.description,
+        isGlobal: true,
         maxCommentsPerParticipant: 3,
         votesPerParticipant: 5,
         maxVotesPerCard: 2,
@@ -193,6 +247,7 @@ async function upsertTemplate(t) {
 }
 
 async function main() {
+  await seedAdmin();
   for (const t of templates) {
     await upsertTemplate(t);
   }

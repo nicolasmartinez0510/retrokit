@@ -84,8 +84,9 @@ export class TeamsService {
   }
 
   async listForUser(userId: string) {
+    const admin = await this.isAdmin(userId);
     const teams = await this.prisma.team.findMany({
-      where: { members: { some: { userId } } },
+      where: admin ? undefined : { members: { some: { userId } } },
       include: {
         _count: {
           select: { members: true, retrospectives: true, joinRequests: true },
@@ -98,29 +99,55 @@ export class TeamsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return teams.map((t) => {
-      const membership = t.members[0];
-      const role = membership?.role;
-      const favoritedAt = membership?.favoritedAt ?? null;
-      const { _count, members, ...rest } = t;
-      return {
-        ...rest,
-        role,
-        favorited: !!favoritedAt,
-        favoritedAt,
-        members: members.map(({ role: memberRole }) => ({ role: memberRole })),
-        _count: {
-          members: _count.members,
-          retrospectives: _count.retrospectives,
-        },
-        pendingJoinCount:
-          role === TeamRole.facilitator ? _count.joinRequests : 0,
-      };
-    });
+    return teams
+      .map((t) => {
+        const membership = t.members[0];
+        const role = membership?.role;
+        const favoritedAt = membership?.favoritedAt ?? null;
+        const { _count, members, ...rest } = t;
+        const canManage = admin || role === TeamRole.facilitator;
+        return {
+          ...rest,
+          role,
+          favorited: !!favoritedAt,
+          favoritedAt,
+          members: members.map(({ role: memberRole }) => ({
+            role: memberRole,
+          })),
+          _count: {
+            members: _count.members,
+            retrospectives: _count.retrospectives,
+          },
+          pendingJoinCount: canManage ? _count.joinRequests : 0,
+        };
+      })
+      .sort((a, b) => {
+        if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
+        if (a.favorited && b.favorited) {
+          const aAt = a.favoritedAt
+            ? new Date(a.favoritedAt).getTime()
+            : 0;
+          const bAt = b.favoritedAt
+            ? new Date(b.favoritedAt).getTime()
+            : 0;
+          return bAt - aAt;
+        }
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
   }
 
   async getOne(userId: string, teamId: string) {
-    const membership = await this.assertMember(userId, teamId);
+    const admin = await this.isAdmin(userId);
+    const membership = admin
+      ? await this.prisma.teamMember.findUnique({
+          where: { teamId_userId: { teamId, userId } },
+        })
+      : await this.assertMember(userId, teamId);
+    if (!admin && !membership) {
+      throw new ForbiddenException('Not a team member');
+    }
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
       include: {
@@ -135,10 +162,12 @@ export class TeamsService {
       },
     });
     if (!team) throw new NotFoundException('Team not found');
-    const favorited = !!membership.favoritedAt;
+    const favorited = !!membership?.favoritedAt;
     const members = team.members.map(({ favoritedAt: _favoritedAt, ...member }) => member);
     const mapped = this.withMappedRetros({ ...team, members });
-    if (membership.role !== TeamRole.facilitator) {
+    const canManage =
+      admin || membership?.role === TeamRole.facilitator;
+    if (!canManage) {
       return { ...mapped, favorited, joinRequests: [] };
     }
     const joinRequests = await this.prisma.teamJoinRequest.findMany({
@@ -191,7 +220,7 @@ export class TeamsService {
   }
 
   async update(userId: string, teamId: string, dto: UpdateTeamDto) {
-    await this.assertFacilitator(userId, teamId);
+    await this.assertFacilitatorOrAdmin(userId, teamId);
     await this.prisma.team.update({
       where: { id: teamId },
       data: { ...(dto.name !== undefined ? { name: dto.name.trim() } : {}) },
@@ -204,7 +233,7 @@ export class TeamsService {
     teamId: string,
     file: Express.Multer.File,
   ) {
-    await this.assertFacilitator(userId, teamId);
+    await this.assertFacilitatorOrAdmin(userId, teamId);
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
       select: { logoUrl: true },
@@ -222,7 +251,7 @@ export class TeamsService {
   }
 
   async deleteLogo(userId: string, teamId: string) {
-    await this.assertFacilitator(userId, teamId);
+    await this.assertFacilitatorOrAdmin(userId, teamId);
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
       select: { logoUrl: true },
@@ -238,7 +267,7 @@ export class TeamsService {
   }
 
   async remove(userId: string, teamId: string) {
-    await this.assertFacilitator(userId, teamId);
+    await this.assertFacilitatorOrAdmin(userId, teamId);
     await this.prisma.team.delete({ where: { id: teamId } });
     await this.uploads.deleteTeamLogoDir(teamId);
     return { deleted: true };
@@ -249,14 +278,19 @@ export class TeamsService {
     teamId: string,
     dto: InviteTeamMemberDto,
   ) {
-    await this.assertFacilitator(actorId, teamId);
+    await this.assertFacilitatorOrAdmin(actorId, teamId);
     const email = dto.email.trim().toLowerCase();
     const invitee = await this.prisma.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
-      select: userPublicSelect,
+      select: { ...userPublicSelect, isAdmin: true },
     });
     if (!invitee) {
       throw new NotFoundException('No hay un usuario registrado con ese email');
+    }
+    if (invitee.isAdmin) {
+      throw new BadRequestException(
+        'El administrador de la app no puede ser invitado a un equipo',
+      );
     }
     if (invitee.id === actorId) {
       throw new BadRequestException('No podés invitarte a vos mismo');
@@ -320,7 +354,7 @@ export class TeamsService {
   }
 
   async listOutgoingInvites(actorId: string, teamId: string) {
-    await this.assertFacilitator(actorId, teamId);
+    await this.assertFacilitatorOrAdmin(actorId, teamId);
     const invites = await this.prisma.teamInvite.findMany({
       where: { teamId, status: TeamInviteStatus.pending },
       include: {
@@ -339,7 +373,7 @@ export class TeamsService {
   }
 
   async cancelInvite(actorId: string, teamId: string, inviteId: string) {
-    await this.assertFacilitator(actorId, teamId);
+    await this.assertFacilitatorOrAdmin(actorId, teamId);
     const invite = await this.prisma.teamInvite.findUnique({
       where: { id: inviteId },
       include: { team: { select: { name: true } } },
@@ -458,6 +492,7 @@ export class TeamsService {
     const users = await this.prisma.user.findMany({
       where: {
         email: { contains: q, mode: 'insensitive' },
+        isAdmin: false,
         NOT: { id: actorId },
       },
       select: userPublicSelect,
@@ -468,7 +503,7 @@ export class TeamsService {
   }
 
   async listMembers(userId: string, teamId: string) {
-    await this.assertMember(userId, teamId);
+    await this.assertMemberOrAdmin(userId, teamId);
     return this.prisma.teamMember.findMany({
       where: { teamId },
       include: {
@@ -478,7 +513,7 @@ export class TeamsService {
   }
 
   async removeMember(actorId: string, teamId: string, targetUserId: string) {
-    await this.assertFacilitator(actorId, teamId);
+    await this.assertFacilitatorOrAdmin(actorId, teamId);
     if (actorId === targetUserId) {
       throw new BadRequestException(
         'No podés sacarte a vos mismo del equipo',
@@ -595,7 +630,7 @@ export class TeamsService {
   }
 
   async acceptJoinRequest(actorId: string, teamId: string, requestId: string) {
-    await this.assertFacilitator(actorId, teamId);
+    await this.assertFacilitatorOrAdmin(actorId, teamId);
     const request = await this.prisma.teamJoinRequest.findUnique({
       where: { id: requestId },
     });
@@ -619,7 +654,7 @@ export class TeamsService {
   }
 
   async rejectJoinRequest(actorId: string, teamId: string, requestId: string) {
-    await this.assertFacilitator(actorId, teamId);
+    await this.assertFacilitatorOrAdmin(actorId, teamId);
     const request = await this.prisma.teamJoinRequest.findUnique({
       where: { id: requestId },
     });
@@ -649,7 +684,22 @@ export class TeamsService {
     return membership;
   }
 
+  async assertMemberOrAdmin(userId: string, teamId: string) {
+    if (await this.isAdmin(userId)) {
+      return this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId, userId } },
+      });
+    }
+    return this.assertMember(userId, teamId);
+  }
+
   async assertMemberOrThrowJoinDenied(userId: string, teamId: string) {
+    if (await this.isAdmin(userId)) {
+      const membership = await this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId, userId } },
+      });
+      return membership;
+    }
     const membership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });
@@ -680,6 +730,29 @@ export class TeamsService {
     return membership;
   }
 
+  async assertFacilitatorOrAdmin(userId: string, teamId: string) {
+    if (await this.isAdmin(userId)) {
+      return this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId, userId } },
+      });
+    }
+    return this.assertFacilitator(userId, teamId);
+  }
+
+  async assertAdmin(userId: string) {
+    if (!(await this.isAdmin(userId))) {
+      throw new ForbiddenException('Admin role required');
+    }
+  }
+
+  async isAdmin(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isAdmin: true },
+    });
+    return !!user?.isAdmin;
+  }
+
   async assertAnyFacilitator(userId: string) {
     const membership = await this.prisma.teamMember.findFirst({
       where: { userId, role: TeamRole.facilitator },
@@ -696,6 +769,74 @@ export class TeamsService {
       select: { id: true },
     });
     return !!membership;
+  }
+
+  /** Member can mutate action if they created it or are the assigned owner. */
+  async assertCanMutateAction(
+    userId: string,
+    teamId: string,
+    action: { createdById: string | null; ownerId: string | null },
+  ) {
+    if (await this.isAdmin(userId)) return;
+    const membership = await this.assertMember(userId, teamId);
+    if (membership.role === TeamRole.facilitator) return;
+    if (action.createdById === userId || action.ownerId === userId) return;
+    throw new ForbiddenException(
+      'Solo podés editar acciones que creaste o que te asignaron',
+    );
+  }
+
+  async listUsersForAdmin(actorId: string) {
+    await this.assertAdmin(actorId);
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatarId: true,
+        isAdmin: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async deleteUserAsAdmin(actorId: string, targetUserId: string) {
+    await this.assertAdmin(actorId);
+    if (actorId === targetUserId) {
+      throw new BadRequestException('No podés borrar tu propia cuenta');
+    }
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, isAdmin: true },
+    });
+    if (!target) throw new NotFoundException('Usuario no encontrado');
+    if (target.isAdmin) {
+      throw new BadRequestException('No se puede borrar al administrador');
+    }
+    await this.prisma.$transaction([
+      this.prisma.template.deleteMany({
+        where: {
+          createdById: targetUserId,
+          isGlobal: false,
+          retrospectives: { none: {} },
+        },
+      }),
+      this.prisma.actionItem.updateMany({
+        where: { ownerId: targetUserId },
+        data: { ownerId: null },
+      }),
+      this.prisma.actionItem.updateMany({
+        where: { createdById: targetUserId },
+        data: { createdById: null },
+      }),
+      this.prisma.participant.updateMany({
+        where: { userId: targetUserId },
+        data: { userId: null },
+      }),
+      this.prisma.user.delete({ where: { id: targetUserId } }),
+    ]);
+    return { deleted: true };
   }
 
   private async facilitatorUserIds(teamId: string) {

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -24,7 +25,7 @@ const templates = [
   },
   {
     name: 'Mad / Sad / Glad',
-    description: 'Share what made you mad, sad, or glad.',
+    description: 'Share what made you mad, sad, and glad.',
     columns: [
       { title: 'Mad', icon: '😠', position: 0 },
       { title: 'Sad', icon: '😢', position: 1 },
@@ -51,9 +52,63 @@ const templates = [
   },
 ];
 
+async function seedAdmin() {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD;
+  if (!email || !password) {
+    console.warn(
+      'ADMIN_EMAIL / ADMIN_PASSWORD not set — skipping admin seed',
+    );
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const existingAdmin = await prisma.user.findFirst({
+    where: { isAdmin: true },
+  });
+
+  if (existingAdmin) {
+    await prisma.user.update({
+      where: { id: existingAdmin.id },
+      data: {
+        email,
+        passwordHash,
+        name: existingAdmin.name || 'Admin',
+        isAdmin: true,
+      },
+    });
+    console.log(`Updated system admin: ${email}`);
+    return;
+  }
+
+  const byEmail = await prisma.user.findUnique({ where: { email } });
+  if (byEmail) {
+    await prisma.user.update({
+      where: { id: byEmail.id },
+      data: { passwordHash, isAdmin: true, name: byEmail.name || 'Admin' },
+    });
+    console.log(`Promoted existing user to system admin: ${email}`);
+    return;
+  }
+
+  await prisma.user.create({
+    data: {
+      email,
+      passwordHash,
+      name: 'Admin',
+      isAdmin: true,
+    },
+  });
+  console.log(`Seeded system admin: ${email}`);
+}
+
 async function main() {
+  await seedAdmin();
+
   for (const t of templates) {
-    const existing = await prisma.template.findFirst({ where: { name: t.name } });
+    const existing = await prisma.template.findFirst({
+      where: { name: t.name, isGlobal: true },
+    });
     if (existing) {
       console.log(`Template already exists: ${t.name}`);
       continue;
@@ -62,6 +117,7 @@ async function main() {
       data: {
         name: t.name,
         description: t.description,
+        isGlobal: true,
         columns: { create: t.columns },
       },
       include: { columns: true },

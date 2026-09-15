@@ -12,6 +12,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtPayload } from '../auth/jwt.strategy';
+import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeEventsService } from './realtime-events.service';
 
 const CONFETTI_COOLDOWN_MS = 1000;
@@ -38,6 +39,7 @@ type SocketPresenceData = {
   type?: JwtPayload['type'];
   guestRetroId?: string;
   retroId?: string;
+  teamId?: string;
 };
 
 @WebSocketGateway({
@@ -54,6 +56,7 @@ export class RealtimeGateway
   constructor(
     private readonly events: RealtimeEventsService,
     private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   afterInit(server: Server) {
@@ -144,6 +147,44 @@ export class RealtimeGateway
     return { ok: true };
   }
 
+  @SubscribeMessage('join-team')
+  async handleJoinTeam(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { teamId?: string },
+  ) {
+    const teamId = body?.teamId?.trim();
+    if (!teamId) return { ok: false };
+    const data = client.data as SocketPresenceData;
+    if (data.type !== 'user' || !data.userId) return { ok: false };
+
+    const allowed = await this.canJoinTeam(data.userId, teamId);
+    if (!allowed) return { ok: false };
+
+    const previousTeamId = data.teamId;
+    if (previousTeamId && previousTeamId !== teamId) {
+      await client.leave(`team:${previousTeamId}`);
+    }
+
+    await client.join(`team:${teamId}`);
+    data.teamId = teamId;
+    return { ok: true };
+  }
+
+  @SubscribeMessage('leave-team')
+  async handleLeaveTeam(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { teamId?: string },
+  ) {
+    const teamId = body?.teamId?.trim();
+    if (!teamId) return { ok: false };
+    const data = client.data as SocketPresenceData;
+    await client.leave(`team:${teamId}`);
+    if (data.teamId === teamId) {
+      data.teamId = undefined;
+    }
+    return { ok: true };
+  }
+
   @SubscribeMessage('throw-confetti')
   handleThrowConfetti(
     @ConnectedSocket() client: Socket,
@@ -165,6 +206,19 @@ export class RealtimeGateway
         : randomUUID();
     this.server.to(room).emit('confetti', { id });
     return { ok: true };
+  }
+
+  private async canJoinTeam(userId: string, teamId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isAdmin: true },
+    });
+    if (user?.isAdmin) return true;
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+      select: { id: true },
+    });
+    return !!membership;
   }
 
   private async broadcastPresence(retroId: string) {

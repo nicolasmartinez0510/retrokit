@@ -42,13 +42,13 @@ export class TemplatesController {
   constructor(private readonly templates: TemplatesService) {}
 
   @Get()
-  list() {
-    return this.templates.list();
+  list(@CurrentUser() user: JwtPayload) {
+    return this.templates.list(user.sub);
   }
 
   @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.templates.getOne(id);
+  getOne(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.templates.getOne(id, user.sub);
   }
 
   @Post()

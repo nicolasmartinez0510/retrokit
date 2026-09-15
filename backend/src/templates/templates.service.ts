@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
 import {
@@ -17,6 +19,12 @@ import {
 
 const columnInclude = { orderBy: { position: 'asc' as const } };
 
+const createdBySelect = {
+  id: true,
+  name: true,
+  email: true,
+} as const;
+
 @Injectable()
 export class TemplatesService {
   constructor(
@@ -25,24 +33,47 @@ export class TemplatesService {
     private readonly uploads: UploadsService,
   ) {}
 
-  list() {
+  async list(userId: string) {
+    const admin = await this.teams.isAdmin(userId);
+    const where: Prisma.TemplateWhereInput = admin
+      ? {}
+      : { OR: [{ isGlobal: true }, { createdById: userId }] };
+
     return this.prisma.template.findMany({
-      include: { columns: columnInclude },
-      orderBy: { name: 'asc' },
+      where,
+      include: {
+        columns: columnInclude,
+        ...(admin ? { createdBy: { select: createdBySelect } } : {}),
+      },
+      orderBy: [{ isGlobal: 'desc' }, { name: 'asc' }],
     });
   }
 
-  async getOne(id: string) {
+  async getOne(id: string, userId: string) {
+    const admin = await this.teams.isAdmin(userId);
     const template = await this.prisma.template.findUnique({
       where: { id },
-      include: { columns: columnInclude },
+      include: {
+        columns: columnInclude,
+        ...(admin ? { createdBy: { select: createdBySelect } } : {}),
+      },
     });
     if (!template) throw new NotFoundException('Plantilla no encontrada');
+    if (
+      !admin &&
+      !template.isGlobal &&
+      template.createdById !== userId
+    ) {
+      throw new NotFoundException('Plantilla no encontrada');
+    }
     return template;
   }
 
   async create(userId: string, dto: CreateTemplateDto) {
-    await this.teams.assertAnyFacilitator(userId);
+    const admin = await this.teams.isAdmin(userId);
+    if (!admin) {
+      await this.teams.assertAnyFacilitator(userId);
+    }
     this.assertValidColumns(dto.columns);
     await this.assertStagingAssets(userId, dto);
 
@@ -57,6 +88,8 @@ export class TemplatesService {
         votesPerParticipant: dto.votesPerParticipant ?? 5,
         maxVotesPerCard: dto.maxVotesPerCard ?? 2,
         backgroundColor: dto.backgroundColor?.trim() || null,
+        isGlobal: admin,
+        createdById: userId,
         columns: {
           create: dto.columns.map((c, i) => this.columnData(c, i)),
         },
@@ -68,8 +101,8 @@ export class TemplatesService {
   }
 
   async update(userId: string, id: string, dto: UpdateTemplateDto) {
-    await this.teams.assertAnyFacilitator(userId);
-    const existing = await this.getOne(id);
+    await this.assertCanManage(userId, id);
+    const existing = await this.getOne(id, userId);
 
     if (dto.columns) {
       this.assertValidColumns(dto.columns);
@@ -157,8 +190,8 @@ export class TemplatesService {
   }
 
   async remove(userId: string, id: string) {
-    await this.teams.assertAnyFacilitator(userId);
-    await this.getOne(id);
+    await this.assertCanManage(userId, id);
+    await this.getOne(id, userId);
 
     const inUse = await this.prisma.retrospective.count({
       where: { templateId: id },
@@ -175,8 +208,8 @@ export class TemplatesService {
   }
 
   async uploadBackground(userId: string, id: string, file: Express.Multer.File) {
-    await this.teams.assertAnyFacilitator(userId);
-    const existing = await this.getOne(id);
+    await this.assertCanManage(userId, id);
+    const existing = await this.getOne(id, userId);
     const url = await this.uploads.saveTemplateBackground(id, file);
     const updated = await this.prisma.template.update({
       where: { id },
@@ -188,8 +221,8 @@ export class TemplatesService {
   }
 
   async clearBackground(userId: string, id: string) {
-    await this.teams.assertAnyFacilitator(userId);
-    const existing = await this.getOne(id);
+    await this.assertCanManage(userId, id);
+    const existing = await this.getOne(id, userId);
     const updated = await this.prisma.template.update({
       where: { id },
       data: { backgroundImageUrl: null },
@@ -205,8 +238,8 @@ export class TemplatesService {
     columnId: string,
     file: Express.Multer.File,
   ) {
-    await this.teams.assertAnyFacilitator(userId);
-    await this.getOne(templateId);
+    await this.assertCanManage(userId, templateId);
+    await this.getOne(templateId, userId);
     const column = await this.prisma.templateColumn.findFirst({
       where: { id: columnId, templateId },
     });
@@ -218,12 +251,12 @@ export class TemplatesService {
       data: { logoUrl: url, icon: null },
     });
     await this.deleteFileIfUnreferenced(column.logoUrl);
-    return this.getOne(templateId);
+    return this.getOne(templateId, userId);
   }
 
   async clearColumnLogo(userId: string, templateId: string, columnId: string) {
-    await this.teams.assertAnyFacilitator(userId);
-    await this.getOne(templateId);
+    await this.assertCanManage(userId, templateId);
+    await this.getOne(templateId, userId);
     const column = await this.prisma.templateColumn.findFirst({
       where: { id: columnId, templateId },
     });
@@ -234,7 +267,7 @@ export class TemplatesService {
       data: { logoUrl: null },
     });
     await this.deleteFileIfUnreferenced(column.logoUrl);
-    return this.getOne(templateId);
+    return this.getOne(templateId, userId);
   }
 
   async saveStaging(
@@ -243,13 +276,13 @@ export class TemplatesService {
     file: Express.Multer.File,
     kind: 'background' | 'logo',
   ) {
-    await this.teams.assertAnyFacilitator(userId);
+    await this.assertCanCreateTemplates(userId);
     const url = await this.uploads.saveStaging(userId, sessionId, file, kind);
     return { url };
   }
 
   async deleteStagingFile(userId: string, url: string) {
-    await this.teams.assertAnyFacilitator(userId);
+    await this.assertCanCreateTemplates(userId);
     if (!url) {
       throw new BadRequestException('La imagen temporal no es válida');
     }
@@ -258,9 +291,26 @@ export class TemplatesService {
   }
 
   async deleteStagingSession(userId: string, sessionId: string) {
-    await this.teams.assertAnyFacilitator(userId);
+    await this.assertCanCreateTemplates(userId);
     await this.uploads.deleteStagingSession(userId, sessionId);
     return { deleted: true };
+  }
+
+  private async assertCanCreateTemplates(userId: string) {
+    if (await this.teams.isAdmin(userId)) return;
+    await this.teams.assertAnyFacilitator(userId);
+  }
+
+  private async assertCanManage(userId: string, templateId: string) {
+    if (await this.teams.isAdmin(userId)) return;
+    const template = await this.prisma.template.findUnique({
+      where: { id: templateId },
+      select: { createdById: true },
+    });
+    if (!template) throw new NotFoundException('Plantilla no encontrada');
+    if (template.createdById !== userId) {
+      throw new ForbiddenException('No podés editar esta plantilla');
+    }
   }
 
   private async assertStagingAssets(
@@ -338,7 +388,7 @@ export class TemplatesService {
       }
     }
 
-    return this.getOne(templateId);
+    return this.getOne(templateId, userId);
   }
 
   private async deleteFileIfUnreferenced(url: string | null | undefined) {

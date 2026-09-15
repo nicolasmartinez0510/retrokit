@@ -5,6 +5,7 @@ import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
 import { TeamSummary } from './models';
 import { SocketService } from './socket.service';
+import { sortTeams, withFavorite } from './team-order';
 import { ToastService } from './toast.service';
 
 const STORAGE_KEY = 'retrokit_active_team';
@@ -67,10 +68,11 @@ export class ActiveTeamService {
       const ready = this.ready();
       const hasTeams = this.hasTeams();
       const url = this.router.url;
+      const isAdmin = !!this.auth.user()?.isAdmin;
       untracked(() => {
         if (!ready || !this.auth.isUser()) return;
         if (!hasTeams && isTeamScopedRoute(url)) {
-          void this.router.navigate(['/dashboard']);
+          void this.router.navigate([isAdmin ? '/teams' : '/dashboard']);
         }
       });
     });
@@ -78,7 +80,8 @@ export class ActiveTeamService {
 
   load(onDone?: (teams: TeamSummary[]) => void) {
     this.api.listTeams().subscribe({
-      next: (teams) => {
+      next: (list) => {
+        const teams = sortTeams(list);
         this.teams.set(teams);
         this.ensureActive(teams);
         this.ready.set(true);
@@ -117,6 +120,13 @@ export class ActiveTeamService {
     }
   }
 
+  /** Reordena la lista al instante cuando se destaca/quita un equipo. */
+  markFavorite(teamId: string, favorited: boolean, favoritedAt?: string | null) {
+    this.teams.update((list) =>
+      withFavorite(list, teamId, favorited, favoritedAt),
+    );
+  }
+
   clearActive() {
     this.activeTeamId.set(null);
     try {
@@ -140,7 +150,8 @@ export class ActiveTeamService {
   private handleRemovedFromTeam(teamId: string, teamName: string) {
     const wasActive = this.activeTeamId() === teamId;
     this.api.listTeams().subscribe({
-      next: (teams) => {
+      next: (list) => {
+        const teams = sortTeams(list);
         this.teams.set(teams);
         this.ready.set(true);
 

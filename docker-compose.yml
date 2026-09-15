@@ -25,6 +25,8 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
       PORT: 3000
       UPLOAD_DIR: /app/uploads
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@retrokit.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me-admin}
     volumes:
       - uploads_data:/app/uploads
     depends_on:

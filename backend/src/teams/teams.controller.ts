@@ -197,8 +197,18 @@ export class TeamsController {
 export class UsersController {
   constructor(private readonly teams: TeamsService) {}
 
+  @Get()
+  list(@CurrentUser() user: JwtPayload) {
+    return this.teams.listUsersForAdmin(user.sub);
+  }
+
   @Get('search')
   search(@CurrentUser() user: JwtPayload, @Query('email') email = '') {
     return this.teams.searchUsersByEmail(user.sub, email);
+  }
+
+  @Delete(':id')
+  remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.teams.deleteUserAsAdmin(user.sub, id);
   }
 }

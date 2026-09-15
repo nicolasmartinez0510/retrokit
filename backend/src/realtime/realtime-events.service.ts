@@ -13,6 +13,10 @@ export class RealtimeEventsService {
     this.server?.to(`retro:${retroId}`).emit(event, payload);
   }
 
+  emitToTeam(teamId: string, event: string, payload: unknown) {
+    this.server?.to(`team:${teamId}`).emit(event, payload);
+  }
+
   emitToUser(userId: string, event: string, payload: unknown) {
     this.server?.to(`user:${userId}`).emit(event, payload);
   }

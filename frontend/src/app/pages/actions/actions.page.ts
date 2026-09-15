@@ -1,5 +1,5 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { ApiService } from '../../core/api.service';
@@ -12,6 +12,7 @@ import {
   ActionStatus,
   TeamDetail,
 } from '../../core/models';
+import { SocketService } from '../../core/socket.service';
 import { ActionItemModalComponent } from '../../shared/action-item-modal.component';
 import type { ActionItemSavePayload } from '../../shared/action-item-modal.component';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
@@ -79,26 +80,44 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                 class="item"
                 cdkDrag
                 [cdkDragData]="item"
+                [cdkDragDisabled]="!canMutateAction(item)"
+                [class.mutable]="canMutateAction(item)"
                 (cdkDragMoved)="onDragMoved()"
                 (click)="openEdit(item)"
               >
                 <div class="item-head">
                   <strong>{{ item.title }}</strong>
-                  @if (isFacilitator()) {
-                    <button
-                      type="button"
-                      class="icon-btn trash"
-                      title="Borrar"
-                      aria-label="Borrar acción"
-                      (click)="remove($event, item)"
-                      (pointerdown)="$event.stopPropagation()"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path
-                          d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                        />
-                      </svg>
-                    </button>
+                  @if (canMutateAction(item)) {
+                    <div class="item-actions">
+                      <button
+                        type="button"
+                        class="icon-btn"
+                        title="Editar"
+                        aria-label="Editar acción"
+                        (click)="openEdit(item, $event)"
+                        (pointerdown)="$event.stopPropagation()"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn trash"
+                        title="Borrar"
+                        aria-label="Borrar acción"
+                        (click)="remove($event, item)"
+                        (pointerdown)="$event.stopPropagation()"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                          />
+                        </svg>
+                      </button>
+                    </div>
                   }
                 </div>
                 @if (item.description) {
@@ -141,7 +160,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         [dueDate]="editDueDate"
         [assignees]="assignees()"
         [linkedComments]="editLinked"
-        saveLabel="Guardar acción"
+        [saveLabel]="editingId ? 'Guardar cambios' : 'Guardar acción'"
         [saving]="saving()"
         (save)="saveModal($event)"
         (discard)="closeModal()"
@@ -179,10 +198,11 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       display: flex;
       flex-direction: column;
       gap: 0.35rem;
-      cursor: grab;
+      cursor: default;
       border: 1px solid var(--color-border);
+      &.mutable { cursor: grab; }
+      &.mutable:active { cursor: grabbing; }
     }
-    .item:active { cursor: grabbing; }
     .item-head {
       display: flex;
       align-items: flex-start;
@@ -192,6 +212,11 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         min-width: 0;
         padding-right: 0.15rem;
       }
+    }
+    .item-actions {
+      display: flex;
+      flex-shrink: 0;
+      gap: 0.15rem;
     }
     .item-desc {
       margin: 0;
@@ -247,6 +272,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       }
       &:hover {
         background: var(--color-bg-muted);
+        color: var(--color-text);
       }
       &.trash {
         color: var(--color-danger);
@@ -276,10 +302,11 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
     }
   `,
 })
-export class ActionsPage implements OnInit {
+export class ActionsPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
+  private readonly sockets = inject(SocketService);
 
   teamId = '';
   team = signal<TeamDetail | null>(null);
@@ -295,6 +322,36 @@ export class ActionsPage implements OnInit {
   editDueDate = '';
   editLinked: ActionLinkedCard[] = [];
   private didDrag = false;
+  private socketBound = false;
+
+  private readonly onActionCreated = (payload: unknown) => {
+    const item = asActionItem(payload);
+    if (!item || item.teamId !== this.teamId) return;
+    this.items.update((list) => {
+      if (list.some((entry) => entry.id === item.id)) return list;
+      return [item, ...list];
+    });
+  };
+
+  private readonly onActionUpdated = (payload: unknown) => {
+    const item = asActionItem(payload);
+    if (!item || item.teamId !== this.teamId) return;
+    this.items.update((list) => {
+      const idx = list.findIndex((entry) => entry.id === item.id);
+      if (idx < 0) return [item, ...list];
+      const next = list.slice();
+      next[idx] = item;
+      return next;
+    });
+  };
+
+  private readonly onActionDeleted = (payload: unknown) => {
+    const id = readString(payload, 'id');
+    const teamId = readString(payload, 'teamId');
+    if (!id || (teamId && teamId !== this.teamId)) return;
+    this.items.update((list) => list.filter((entry) => entry.id !== id));
+    if (this.editingId === id) this.closeModal();
+  };
 
   columns: { key: ActionStatus; label: string }[] = [
     { key: 'pending', label: 'Pendiente' },
@@ -316,6 +373,11 @@ export class ActionsPage implements OnInit {
       if (latest) this.retroFilter.set(latest.id);
     });
     this.reload();
+    this.attachSocket();
+  }
+
+  ngOnDestroy() {
+    this.detachSocket();
   }
 
   reload() {
@@ -349,6 +411,7 @@ export class ActionsPage implements OnInit {
   }
 
   isFacilitator() {
+    if (this.auth.user()?.isAdmin) return true;
     const userId = this.auth.user()?.id;
     if (!userId) return false;
     return (
@@ -356,6 +419,13 @@ export class ActionsPage implements OnInit {
         (m) => m.user.id === userId && m.role === 'facilitator',
       ) ?? false
     );
+  }
+
+  canMutateAction(item: ActionItem) {
+    if (this.isFacilitator()) return true;
+    const userId = this.auth.user()?.id;
+    if (!userId) return false;
+    return item.createdById === userId || item.ownerId === userId;
   }
 
   dueLabel(iso?: string | null) {
@@ -371,14 +441,18 @@ export class ActionsPage implements OnInit {
     if (event.previousContainer === event.container) return;
     const item = event.item.data as ActionItem;
     if (!item || item.status === status) return;
+    if (!this.canMutateAction(item)) return;
     this.move(item, status);
   }
 
-  openEdit(item: ActionItem) {
-    if (this.didDrag) {
+  openEdit(item: ActionItem, event?: Event) {
+    event?.stopPropagation();
+    if (!event && this.didDrag) {
       this.didDrag = false;
       return;
     }
+    this.didDrag = false;
+    if (!this.canMutateAction(item)) return;
     this.editingId = item.id;
     this.editTitle = item.title;
     this.editDescription = item.description ?? '';
@@ -501,10 +575,46 @@ export class ActionsPage implements OnInit {
       },
     });
   }
+
+  private attachSocket() {
+    if (this.socketBound || !this.teamId) return;
+    this.sockets.joinTeam(this.teamId);
+    this.sockets.on('action-created', this.onActionCreated);
+    this.sockets.on('action-updated', this.onActionUpdated);
+    this.sockets.on('action-deleted', this.onActionDeleted);
+    this.socketBound = true;
+  }
+
+  private detachSocket() {
+    if (!this.socketBound) return;
+    this.sockets.off('action-created', this.onActionCreated);
+    this.sockets.off('action-updated', this.onActionUpdated);
+    this.sockets.off('action-deleted', this.onActionDeleted);
+    this.sockets.leaveTeam(this.teamId);
+    this.socketBound = false;
+  }
 }
 
 function linkedCommentsFromAction(item: ActionItem): ActionLinkedCard[] {
   if (item.group?.cards?.length) return item.group.cards;
   if (item.card) return [item.card];
   return [];
+}
+
+function asActionItem(payload: unknown): ActionItem | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const item = payload as Partial<ActionItem>;
+  if (typeof item.id !== 'string' || typeof item.teamId !== 'string') {
+    return null;
+  }
+  if (typeof item.title !== 'string' || typeof item.status !== 'string') {
+    return null;
+  }
+  return item as ActionItem;
+}
+
+function readString(payload: unknown, key: string): string {
+  if (!payload || typeof payload !== 'object') return '';
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : '';
 }

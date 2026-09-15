@@ -87,10 +87,16 @@ export class RetrosService {
   ) {}
 
   async create(userId: string, dto: CreateRetroDto) {
-    await this.teams.assertMember(userId, dto.teamId);
+    await this.teams.assertFacilitatorOrAdmin(userId, dto.teamId);
 
-    const template = await this.prisma.template.findUnique({
-      where: { id: dto.templateId },
+    const admin = await this.teams.isAdmin(userId);
+    const template = await this.prisma.template.findFirst({
+      where: {
+        id: dto.templateId,
+        ...(admin
+          ? {}
+          : { OR: [{ isGlobal: true }, { createdById: userId }] }),
+      },
       include: { columns: { orderBy: { position: 'asc' } } },
     });
     if (!template) {
@@ -1277,6 +1283,7 @@ export class RetrosService {
         title: dto.title.trim(),
         description: dto.description?.trim() || null,
         ownerId: dto.ownerId || null,
+        createdById: user.type === 'user' ? user.sub : null,
         dueDate: parseOptionalDueDate(dto.dueDate) ?? null,
         cardId,
         groupId,
@@ -1286,6 +1293,7 @@ export class RetrosService {
 
     const payload = serializeActionItem(action);
     this.events.emit(retroId, 'action-created', payload);
+    this.events.emitToTeam(retro.teamId, 'action-created', payload);
     return payload;
   }
 
@@ -1438,7 +1446,7 @@ export class RetrosService {
     retroId: string,
     teamId: string,
   ) {
-    await this.teams.assertMember(userId, teamId);
+    await this.teams.assertMemberOrAdmin(userId, teamId);
 
     let participant = await this.prisma.participant.findFirst({
       where: { retroId, userId, isGuest: false },
@@ -1485,11 +1493,12 @@ export class RetrosService {
       throw new ForbiddenException('Facilitator role required');
     }
     const retro = await this.getRetroOrThrow(retroId);
-    await this.teams.assertFacilitator(user.sub, retro.teamId);
+    await this.teams.assertFacilitatorOrAdmin(user.sub, retro.teamId);
   }
 
   private async isFacilitator(user: JwtPayload, retroId: string) {
     if (user.type !== 'user') return false;
+    if (await this.teams.isAdmin(user.sub)) return true;
     const retro = await this.getRetroOrThrow(retroId);
     const membership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId: retro.teamId, userId: user.sub } },

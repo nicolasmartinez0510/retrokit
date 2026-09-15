@@ -26,10 +26,12 @@ export class AuthService {
 
   private meRequest: Observable<User | null> | null = null;
   private facilitatorRequest: Observable<boolean> | null = null;
+  private adminRequest: Observable<boolean> | null = null;
 
   constructor() {
     if (this.isUser()) {
       this.ensureFacilitator().subscribe();
+      this.ensureAdmin().subscribe();
     }
   }
 
@@ -91,6 +93,25 @@ export class AuthService {
     return this.facilitatorRequest;
   }
 
+  /** Resolves whether the current user is the system admin. */
+  ensureAdmin(): Observable<boolean> {
+    if (!this.isUser()) return of(false);
+    if (this.user()?.isAdmin) return of(true);
+    if (!this.adminRequest) {
+      this.adminRequest = this.ensureMe().pipe(
+        map((user) => !!user?.isAdmin),
+        tap((isAdmin) => {
+          const current = this.user();
+          if (!current || current.type === 'guest') return;
+          if (current.isAdmin === isAdmin) return;
+          this.writeUser({ ...current, isAdmin });
+        }),
+        shareReplay(1),
+      );
+    }
+    return this.adminRequest;
+  }
+
   markFacilitator() {
     const current = this.user();
     if (!current || current.type === 'guest' || current.isFacilitator) return;
@@ -102,6 +123,7 @@ export class AuthService {
   refreshProfile(): Observable<User | null> {
     this.meRequest = null;
     this.facilitatorRequest = null;
+    this.adminRequest = null;
     return this.ensureMe();
   }
 
@@ -127,6 +149,7 @@ export class AuthService {
     this.user.set(user);
     this.meRequest = null;
     this.facilitatorRequest = null;
+    this.adminRequest = null;
   }
 
   logout() {
@@ -136,6 +159,7 @@ export class AuthService {
     this.user.set(null);
     this.meRequest = null;
     this.facilitatorRequest = null;
+    this.adminRequest = null;
     void this.router.navigateByUrl('/login');
   }
 
@@ -154,6 +178,10 @@ export class AuthService {
               typeof profile.isFacilitator === 'boolean'
                 ? profile.isFacilitator
                 : current.isFacilitator,
+            isAdmin:
+              typeof profile.isAdmin === 'boolean'
+                ? profile.isAdmin
+                : current.isAdmin,
           });
         }),
       );
@@ -174,6 +202,8 @@ export class AuthService {
               typeof profile.isFacilitator === 'boolean'
                 ? profile.isFacilitator
                 : false,
+            isAdmin:
+              typeof profile.isAdmin === 'boolean' ? profile.isAdmin : false,
           };
           this.writeUser(user);
           return user;
@@ -191,12 +221,14 @@ export class AuthService {
       ...res.user,
       type: 'user',
       isFacilitator: !!res.user.isFacilitator,
+      isAdmin: !!res.user.isAdmin,
     };
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     this.token.set(res.accessToken);
     this.user.set(user);
     this.meRequest = null;
     this.facilitatorRequest = null;
+    this.adminRequest = null;
   }
 
   private writeUser(user: User) {

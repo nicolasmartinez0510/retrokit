@@ -11,8 +11,10 @@ import { filter } from 'rxjs/operators';
 import { ActiveTeamService } from '../core/active-team.service';
 import { AuthService } from '../core/auth.service';
 import { FavoriteTeamsService } from '../core/favorite-teams.service';
+import { httpErrorMessage } from '../core/http-error';
 import { NavRailLayoutService } from '../core/nav-rail-layout.service';
 import { ThemeService } from '../core/theme.service';
+import { ToastService } from '../core/toast.service';
 import { TeamSummary } from '../core/models';
 import { AvatarMenuComponent } from './avatar-menu.component';
 import { BrandLogo } from './brand-logo.component';
@@ -42,14 +44,21 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
         <button
           type="button"
           class="team-btn"
+          [disabled]="!hasTeams()"
           [attr.aria-expanded]="teamMenuOpen()"
           aria-haspopup="listbox"
           [attr.aria-label]="
-            activeTeam()
-              ? 'Equipo: ' + activeTeam()!.name
-              : 'Seleccionar equipo'
+            !hasTeams()
+              ? 'Sin equipos'
+              : activeTeam()
+                ? 'Equipo: ' + activeTeam()!.name
+                : 'Seleccionar equipo'
           "
-          [title]="activeTeam()?.name || 'Seleccionar equipo'"
+          [title]="
+            !hasTeams()
+              ? 'No hay equipos todavía'
+              : activeTeam()?.name || 'Seleccionar equipo'
+          "
           (click)="toggleTeamMenu($event)"
         >
           <span class="team-initial" aria-hidden="true">
@@ -64,7 +73,9 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
               <span class="team-name">{{
                 activeTeam()?.name || 'Sin equipo'
               }}</span>
-              <span class="team-hint">Cambiar equipo</span>
+              <span class="team-hint">{{
+                hasTeams() ? 'Cambiar equipo' : 'Sin equipos'
+              }}</span>
             </span>
             <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -74,7 +85,7 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
           }
         </button>
 
-        @if (teamMenuOpen()) {
+        @if (teamMenuOpen() && hasTeams()) {
           <div
             class="team-popover"
             role="listbox"
@@ -104,28 +115,30 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
                     </span>
                     <span class="team-option-name">{{ team.name }}</span>
                   </button>
-                  <button
-                    type="button"
-                    class="star-btn"
-                    [class.on]="!!team.favorited"
-                    [attr.aria-label]="
-                      team.favorited
-                        ? 'Quitar de destacados'
-                        : 'Destacar equipo'
-                    "
-                    [title]="
-                      team.favorited
-                        ? 'Quitar de destacados'
-                        : 'Destacar equipo'
-                    "
-                    (click)="toggleFavorite($event, team)"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
-                      />
-                    </svg>
-                  </button>
+                  @if (team.role) {
+                    <button
+                      type="button"
+                      class="star-btn"
+                      [class.on]="!!team.favorited"
+                      [attr.aria-label]="
+                        team.favorited
+                          ? 'Quitar de destacados'
+                          : 'Destacar equipo'
+                      "
+                      [title]="
+                        team.favorited
+                          ? 'Quitar de destacados'
+                          : 'Destacar equipo'
+                      "
+                      (click)="toggleFavorite($event, team)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
+                        />
+                      </svg>
+                    </button>
+                  }
                 </li>
               }
             </ul>
@@ -141,22 +154,39 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
       </div>
 
       <nav class="rail-nav" aria-label="Secciones">
-        <a
-          routerLink="/dashboard"
-          routerLinkActive="active"
-          class="nav-item"
-          aria-label="Panel"
-          title="Panel"
-        >
-          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
-            />
-          </svg>
-          @if (layout.expanded()) {
-            <span>Panel</span>
-          }
-        </a>
+        @if (hasTeams()) {
+          <a
+            routerLink="/dashboard"
+            routerLinkActive="active"
+            class="nav-item"
+            aria-label="Panel"
+            title="Panel"
+          >
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
+              />
+            </svg>
+            @if (layout.expanded()) {
+              <span>Panel</span>
+            }
+          </a>
+        } @else {
+          <span
+            class="nav-item disabled"
+            aria-disabled="true"
+            title="Necesitás un equipo"
+          >
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
+              />
+            </svg>
+            @if (layout.expanded()) {
+              <span>Panel</span>
+            }
+          </span>
+        }
 
         @if (activeTeamId(); as teamId) {
           <a
@@ -227,27 +257,78 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
               <span>Miembros</span>
             }
           </a>
+        } @else {
+          <span
+            class="nav-item disabled"
+            aria-disabled="true"
+            title="Necesitás un equipo"
+          >
+            <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+              />
+            </svg>
+            @if (layout.expanded()) {
+              <span>Retros</span>
+            }
+          </span>
+          <span
+            class="nav-item disabled"
+            aria-disabled="true"
+            title="Necesitás un equipo"
+          >
+            <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z"
+              />
+            </svg>
+            @if (layout.expanded()) {
+              <span>Acciones</span>
+            }
+          </span>
+          <span
+            class="nav-item disabled"
+            aria-disabled="true"
+            title="Necesitás un equipo"
+          >
+            <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"
+              />
+            </svg>
+            @if (layout.expanded()) {
+              <span>Miembros</span>
+            }
+          </span>
         }
 
-        <a
-          routerLink="/teams"
-          routerLinkActive="active"
-          [routerLinkActiveOptions]="{ exact: true }"
-          class="nav-item"
-          aria-label="Equipos"
-          title="Equipos"
-        >
-          <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z"
-            />
-          </svg>
-          @if (layout.expanded()) {
-            <span>Equipos</span>
-          }
-        </a>
+        <div class="nav-section" role="group" aria-label="Administrar">
+          <div class="nav-section-label" aria-hidden="true">
+            @if (layout.expanded()) {
+              <span>Administrar</span>
+            } @else {
+              <span class="nav-section-rule"></span>
+            }
+          </div>
 
-        @if (auth.user()?.isFacilitator) {
+          <a
+            routerLink="/teams"
+            routerLinkActive="active"
+            [routerLinkActiveOptions]="{ exact: true }"
+            class="nav-item"
+            aria-label="Equipos"
+            title="Equipos"
+          >
+            <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z"
+              />
+            </svg>
+            @if (layout.expanded()) {
+              <span>Equipos</span>
+            }
+          </a>
+
           <a
             routerLink="/templates"
             routerLinkActive="active"
@@ -264,7 +345,26 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
               <span>Plantillas</span>
             }
           </a>
-        }
+
+          @if (auth.user()?.isAdmin) {
+            <a
+              routerLink="/users"
+              routerLinkActive="active"
+              class="nav-item"
+              aria-label="Usuarios"
+              title="Usuarios"
+            >
+              <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"
+                />
+              </svg>
+              @if (layout.expanded()) {
+                <span>Usuarios</span>
+              }
+            </a>
+          }
+        </div>
       </nav>
 
       <div class="rail-bottom">
@@ -657,6 +757,37 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
       overflow: auto;
       padding-top: 0.25rem;
     }
+    .nav-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin-top: 0.55rem;
+      padding-top: 0.55rem;
+      border-top: 1px solid var(--color-border);
+    }
+    .nav-section-label {
+      display: flex;
+      align-items: center;
+      min-height: 1.1rem;
+      padding: 0 0.45rem 0.15rem;
+      color: var(--color-text-muted);
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      opacity: 0.85;
+    }
+    .nav-rail:not(.expanded) .nav-section-label {
+      justify-content: center;
+      padding: 0.15rem 0.35rem 0.35rem;
+    }
+    .nav-section-rule {
+      display: block;
+      width: 1.1rem;
+      height: 2px;
+      border-radius: 999px;
+      background: var(--color-border);
+    }
     .nav-item {
       appearance: none;
       display: flex;
@@ -767,6 +898,7 @@ export class AppNavRailComponent {
   private readonly router = inject(Router);
   private readonly activeTeams = inject(ActiveTeamService);
   private readonly favorites = inject(FavoriteTeamsService);
+  private readonly toast = inject(ToastService);
   readonly layout = inject(NavRailLayoutService);
   readonly auth = inject(AuthService);
   readonly theme = inject(ThemeService);
@@ -778,6 +910,7 @@ export class AppNavRailComponent {
   readonly teams = this.activeTeams.teams;
   readonly activeTeamId = this.activeTeams.activeTeamId;
   readonly activeTeam = this.activeTeams.activeTeam;
+  readonly hasTeams = this.activeTeams.hasTeams;
 
   readonly teamInitial = computed(() =>
     this.initialFor(this.activeTeam()?.name || '?'),
@@ -799,6 +932,7 @@ export class AppNavRailComponent {
 
   toggleTeamMenu(ev: MouseEvent) {
     ev.stopPropagation();
+    if (!this.hasTeams()) return;
     const opening = !this.teamMenuOpen();
     this.teamMenuOpen.set(opening);
     if (opening) this.activeTeams.load();
@@ -825,9 +959,15 @@ export class AppNavRailComponent {
   toggleFavorite(ev: MouseEvent, team: TeamSummary) {
     ev.stopPropagation();
     const next = !team.favorited;
+    const previousAt = team.favoritedAt;
+    this.activeTeams.markFavorite(team.id, next);
     this.favorites.setFavorite(team.id, next, team.name).subscribe({
-      next: () => this.activeTeams.load(),
-      error: () => undefined,
+      next: (res) =>
+        this.activeTeams.markFavorite(team.id, res.favorited, res.favoritedAt),
+      error: (e) => {
+        this.activeTeams.markFavorite(team.id, !next, previousAt);
+        this.toast.error(httpErrorMessage(e, 'No se pudo actualizar'));
+      },
     });
   }
 

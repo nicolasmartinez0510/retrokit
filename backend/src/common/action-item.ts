@@ -63,6 +63,7 @@ export function serializeActionItem(action: ActionItemWithOrigin) {
     description: action.description,
     status: action.status,
     ownerId: action.ownerId,
+    createdById: action.createdById,
     dueDate: action.dueDate,
     cardId: action.cardId,
     groupId: action.groupId,

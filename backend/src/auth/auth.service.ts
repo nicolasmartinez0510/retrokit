@@ -35,6 +35,7 @@ export class AuthService {
         passwordHash,
         name: dto.name.trim(),
         avatarId: isAvatarId(dto.avatarId) ? dto.avatarId : null,
+        isAdmin: false,
       },
     });
     const avatarId = user.avatarId ?? avatarForSeed(user.id);
@@ -44,7 +45,14 @@ export class AuthService {
         data: { avatarId },
       });
     }
-    return this.tokenResponse(user.id, user.email, user.name, avatarId, false);
+    return this.tokenResponse(
+      user.id,
+      user.email,
+      user.name,
+      avatarId,
+      false,
+      false,
+    );
   }
 
   async login(dto: LoginDto) {
@@ -66,6 +74,7 @@ export class AuthService {
       user.name,
       avatarId,
       isFacilitator,
+      user.isAdmin,
     );
   }
 
@@ -77,6 +86,7 @@ export class AuthService {
         email: true,
         name: true,
         avatarId: true,
+        isAdmin: true,
         createdAt: true,
       },
     });
@@ -102,6 +112,7 @@ export class AuthService {
         email: true,
         name: true,
         avatarId: true,
+        isAdmin: true,
         createdAt: true,
       },
     });
@@ -188,10 +199,11 @@ export class AuthService {
     name: string,
     avatarId: string,
     isFacilitator: boolean,
+    isAdmin: boolean,
   ) {
     return {
       accessToken: this.signUser(id, email, name, avatarId),
-      user: { id, email, name, avatarId, isFacilitator },
+      user: { id, email, name, avatarId, isFacilitator, isAdmin },
     };
   }
 }

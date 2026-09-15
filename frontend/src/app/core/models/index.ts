@@ -18,6 +18,7 @@ export interface User {
   participantId?: string;
   retroId?: string;
   isFacilitator?: boolean;
+  isAdmin?: boolean;
 }
 
 export interface TemplateColumnInput {
@@ -156,6 +157,9 @@ export interface Template {
   maxVotesPerCard?: number;
   backgroundColor?: string | null;
   backgroundImageUrl?: string | null;
+  isGlobal: boolean;
+  createdById?: string | null;
+  createdBy?: { id: string; name: string; email: string } | null;
   columns: TemplateColumn[];
 }
 
@@ -291,6 +295,7 @@ export interface ActionItem {
   description?: string | null;
   status: ActionStatus;
   ownerId?: string | null;
+  createdById?: string | null;
   dueDate?: string | null;
   cardId?: string | null;
   groupId?: string | null;

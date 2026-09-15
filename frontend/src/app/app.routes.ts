@@ -1,9 +1,10 @@
 import { Routes } from '@angular/router';
 import {
+  adminGuard,
   authGuard,
-  facilitatorGuard,
   guestGuard,
   homeRedirectGuard,
+  templateEditorGuard,
   tokenGuard,
 } from './core/auth.guard';
 
@@ -40,14 +41,20 @@ export const routes: Routes = [
       import('./pages/teams/teams.page').then((m) => m.TeamsPage),
   },
   {
+    path: 'users',
+    canActivate: [authGuard, adminGuard],
+    loadComponent: () =>
+      import('./pages/users/users.page').then((m) => m.UsersPage),
+  },
+  {
     path: 'templates',
-    canActivate: [authGuard, facilitatorGuard],
+    canActivate: [authGuard],
     loadComponent: () =>
       import('./pages/templates/templates.page').then((m) => m.TemplatesPage),
   },
   {
     path: 'templates/new',
-    canActivate: [authGuard, facilitatorGuard],
+    canActivate: [authGuard, templateEditorGuard],
     loadComponent: () =>
       import('./pages/templates/template-editor.page').then(
         (m) => m.TemplateEditorPage,
@@ -55,7 +62,7 @@ export const routes: Routes = [
   },
   {
     path: 'templates/:id',
-    canActivate: [authGuard, facilitatorGuard],
+    canActivate: [authGuard, templateEditorGuard],
     loadComponent: () =>
       import('./pages/templates/template-editor.page').then(
         (m) => m.TemplateEditorPage,

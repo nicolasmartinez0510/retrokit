@@ -4,7 +4,8 @@ import {
   CanActivateFn,
   Router,
 } from '@angular/router';
-import { map } from 'rxjs/operators';
+import { of } from 'rxjs';
+import { map, switchMap } from 'rxjs/operators';
 import { AuthService } from './auth.service';
 
 function safeReturnUrl(value: string | null): string | null {
@@ -58,5 +59,30 @@ export const facilitatorGuard: CanActivateFn = () => {
   if (!auth.isUser()) return router.createUrlTree(['/login']);
   return auth.ensureFacilitator().pipe(
     map((ok) => (ok ? true : router.createUrlTree(['/dashboard']))),
+  );
+};
+
+/** Requires the system admin user. */
+export const adminGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  if (!auth.isUser()) return router.createUrlTree(['/login']);
+  return auth.ensureAdmin().pipe(
+    map((ok) => (ok ? true : router.createUrlTree(['/dashboard']))),
+  );
+};
+
+/** Admin or facilitator — can create/edit own or (admin) any templates. */
+export const templateEditorGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  if (!auth.isUser()) return router.createUrlTree(['/login']);
+  return auth.ensureAdmin().pipe(
+    switchMap((isAdmin) =>
+      isAdmin
+        ? of(true as const)
+        : auth.ensureFacilitator().pipe(map((ok) => (ok ? true : false))),
+    ),
+    map((ok) => (ok ? true : router.createUrlTree(['/templates']))),
   );
 };

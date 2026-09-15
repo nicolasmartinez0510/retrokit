@@ -476,6 +476,7 @@ export class MembersPage implements OnInit, OnDestroy {
   }
 
   isFacilitator() {
+    if (this.auth.user()?.isAdmin) return true;
     const userId = this.auth.user()?.id;
     if (!userId) return false;
     return this.members().some(

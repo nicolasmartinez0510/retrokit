@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
+import { RealtimeEventsService } from '../realtime/realtime-events.service';
 import {
   actionItemInclude,
   parseOptionalDueDate,
@@ -17,10 +18,11 @@ export class ActionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teams: TeamsService,
+    private readonly events: RealtimeEventsService,
   ) {}
 
   async listForTeam(userId: string, teamId: string) {
-    await this.teams.assertMember(userId, teamId);
+    await this.teams.assertMemberOrAdmin(userId, teamId);
     const items = await this.prisma.actionItem.findMany({
       where: { teamId },
       include: actionItemInclude,
@@ -34,7 +36,7 @@ export class ActionsService {
     teamId: string,
     dto: CreateTeamActionDto,
   ) {
-    await this.teams.assertMember(userId, teamId);
+    await this.teams.assertMemberOrAdmin(userId, teamId);
     const retro = await this.prisma.retrospective.findFirst({
       where: { id: dto.retroId, teamId },
       select: { id: true },
@@ -49,11 +51,14 @@ export class ActionsService {
         title: dto.title.trim(),
         description: dto.description?.trim() || null,
         ownerId: dto.ownerId || null,
+        createdById: userId,
         dueDate: parseOptionalDueDate(dto.dueDate) ?? null,
       },
       include: actionItemInclude,
     });
-    return serializeActionItem(action);
+    const payload = serializeActionItem(action);
+    this.events.emitToTeam(teamId, 'action-created', payload);
+    return payload;
   }
 
   async update(userId: string, actionId: string, dto: UpdateActionDto) {
@@ -61,7 +66,7 @@ export class ActionsService {
       where: { id: actionId },
     });
     if (!action) throw new NotFoundException('Action not found');
-    await this.teams.assertMember(userId, action.teamId);
+    await this.teams.assertCanMutateAction(userId, action.teamId, action);
 
     const dueDate = parseOptionalDueDate(dto.dueDate);
 
@@ -78,7 +83,9 @@ export class ActionsService {
       },
       include: actionItemInclude,
     });
-    return serializeActionItem(updated);
+    const payload = serializeActionItem(updated);
+    this.events.emitToTeam(action.teamId, 'action-updated', payload);
+    return payload;
   }
 
   async updateForTeam(
@@ -101,8 +108,12 @@ export class ActionsService {
       where: { id: actionId },
     });
     if (!action) throw new NotFoundException('Action not found');
-    await this.teams.assertFacilitator(userId, action.teamId);
+    await this.teams.assertCanMutateAction(userId, action.teamId, action);
     await this.prisma.actionItem.delete({ where: { id: actionId } });
+    this.events.emitToTeam(action.teamId, 'action-deleted', {
+      id: actionId,
+      teamId: action.teamId,
+    });
     return { deleted: true };
   }
 }
