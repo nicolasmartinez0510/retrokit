@@ -416,6 +416,13 @@ export class DashboardPage implements OnInit {
             createdAtLabel: formatCreatedAt(r.createdAt),
           }));
         this.recentRetros.set(retros);
+        const userId = this.auth.user()?.id;
+        const canSeeAllActions =
+          !!this.auth.user()?.isAdmin ||
+          (!!userId &&
+            team.members.some(
+              (m) => m.user.id === userId && m.role === 'facilitator',
+            ));
         this.expiringActions.set(
           actions
             .filter((a) => a.status === 'pending' || a.status === 'doing')
@@ -423,6 +430,7 @@ export class DashboardPage implements OnInit {
               const days = daysUntilDue(a.dueDate);
               return days !== null && days <= this.dueSoonDays;
             })
+            .filter((a) => canSeeAllActions || (!!userId && a.ownerId === userId))
             .sort(
               (a, b) =>
                 (daysUntilDue(a.dueDate) ?? 0) - (daysUntilDue(b.dueDate) ?? 0),
