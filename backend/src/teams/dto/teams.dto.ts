@@ -1,9 +1,23 @@
-import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export class CreateTeamDto {
   @IsString()
   @MinLength(2)
   name!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsEmail({}, { each: true })
+  inviteEmails?: string[];
 }
 
 export class JoinTeamDto {
@@ -28,4 +42,9 @@ export class RequestTeamJoinDto {
 export class SetTeamFavoriteDto {
   @IsBoolean()
   favorited!: boolean;
+}
+
+export class InviteTeamMemberDto {
+  @IsEmail()
+  email!: string;
 }

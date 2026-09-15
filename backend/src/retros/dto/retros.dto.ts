@@ -67,6 +67,11 @@ export class CreateRetroDto {
 
 export class UpdateSettingsDto {
   @IsOptional()
+  @IsString()
+  @MinLength(1)
+  title?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   maxCommentsPerParticipant?: number | null;

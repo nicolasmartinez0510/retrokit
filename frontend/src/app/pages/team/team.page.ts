@@ -1,21 +1,14 @@
-import { Component, HostListener, OnDestroy, OnInit, effect, inject, signal, untracked } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { parseAvatarChanged } from '../../core/avatars';
-import { daysUntilDue, dueUrgencyLabel, formatDueDate } from '../../core/dates';
-import { FavoriteTeamsService } from '../../core/favorite-teams.service';
 import { httpErrorMessage } from '../../core/http-error';
-import { JoinRequestService } from '../../core/join-request.service';
 import {
-  ACTION_STATUS_LABELS,
-  ActionItem,
   PHASE_LABELS,
   RetroSummary,
   TeamDetail,
-  TeamJoinRequest,
-  TeamMember,
   Template,
 } from '../../core/models';
 import { SocketService } from '../../core/socket.service';
@@ -30,26 +23,8 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       @if (team(); as t) {
         <div class="page-header">
           <div>
-            <div class="title-row">
-              <h1>{{ t.name }}</h1>
-              <button
-                type="button"
-                class="star-btn"
-                [class.on]="t.favorited"
-                [attr.aria-pressed]="!!t.favorited"
-                [attr.aria-label]="
-                  t.favorited ? 'Quitar de destacados' : 'Destacar equipo'
-                "
-                [title]="t.favorited ? 'Quitar de destacados' : 'Destacar equipo'"
-                (click)="toggleFavorite()"
-              >
-                <svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
-                  />
-                </svg>
-              </button>
-            </div>
+            <h1>Retrospectivas</h1>
+            <p class="subtitle">Historial del equipo activo</p>
           </div>
           <div class="header-actions">
             <button
@@ -64,129 +39,54 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
               </svg>
               Nueva retrospectiva
             </button>
-            <button
-              type="button"
-              class="btn-secondary"
-              (click)="openInviteModal()"
-            >
-              <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"
-                />
-              </svg>
-              Invitar
-            </button>
-            <a class="btn-secondary" [routerLink]="['/teams', t.id, 'actions']">
-              <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z"
-                />
-              </svg>
-              Tablero de acciones
-            </a>
-            @if (isFacilitator()) {
-              <button
-                type="button"
-                class="btn-danger"
-                (click)="openDeleteModal()"
-              >
-                <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                  />
-                </svg>
-                Borrar equipo
-              </button>
-            }
           </div>
         </div>
 
-        @if (reminder()) {
-          <div class="card reminder">
-            Hay {{ reminder() }} acciones pendientes de retros anteriores.
-          </div>
-        }
-
-        @if (error() && !showCreateModal() && !showDeleteModal() && !showInviteModal()) {
+        @if (error() && !showCreateModal()) {
           <p class="form-error">{{ error() }}</p>
         }
 
-        <div class="team-columns">
-          <section class="section column-section">
-            <h2>Miembros</h2>
-            <div class="column-scroll member-list">
-              @for (req of t.joinRequests ?? []; track req.id) {
-                <div class="card member-row pending-member">
-                  <div class="member-info">
-                    <app-user-avatar
-                      [avatarId]="req.user.avatarId"
-                      [ownerId]="req.user.id"
-                      [seed]="req.user.id"
-                      [name]="req.user.name"
-                      size="sm"
+        <section class="section">
+          <div class="retro-list">
+            @for (r of t.retrospectives; track r.id) {
+              <div class="card retro-row">
+                @if (renamingId() === r.id) {
+                  <form class="rename-form" (ngSubmit)="saveRename(r)">
+                    <input
+                      [(ngModel)]="renameTitle"
+                      name="renameTitle"
+                      required
+                      autofocus
                     />
-                    <strong>{{ req.user.name }}</strong>
-                    <span class="badge">Nuevo · pendiente</span>
-                  </div>
-                  @if (isFacilitator()) {
-                    <div class="member-actions">
-                      <button
-                        type="button"
-                        class="btn-primary btn-sm"
-                        [disabled]="resolvingRequestId() === req.id"
-                        (click)="acceptJoin(req)"
-                      >
-                        Confirmar
-                      </button>
-                      <button
-                        type="button"
-                        class="btn-danger btn-sm"
-                        [disabled]="resolvingRequestId() === req.id"
-                        (click)="rejectJoin(req)"
-                      >
-                        Rechazar
-                      </button>
-                    </div>
-                  }
-                </div>
-              }
-              @for (m of t.members; track m.id) {
-                <div class="card member-row">
-                  <div class="member-info">
-                    <app-user-avatar
-                      [avatarId]="m.user.avatarId"
-                      [ownerId]="m.user.id"
-                      [seed]="m.user.id"
-                      [name]="m.user.name"
-                      size="sm"
-                    />
-                    <strong>{{ m.user.name }}</strong>
-                    <span class="badge">{{ roleLabel(m.role) }}</span>
-                  </div>
-                  @if (isFacilitator() && m.user.id !== currentUserId()) {
+                    <button type="submit" class="btn-primary btn-sm">Guardar</button>
                     <button
                       type="button"
-                      class="btn-danger btn-sm"
-                      (click)="removeMember(m)"
+                      class="btn-ghost btn-sm"
+                      (click)="cancelRename()"
                     >
-                      Sacar
+                      Cancelar
                     </button>
-                  }
-                </div>
-              }
-            </div>
-          </section>
-
-          <section class="section column-section">
-            <h2>Historial</h2>
-            <div class="column-scroll retro-list">
-              @for (r of t.retrospectives; track r.id) {
-                <div class="card retro-row">
-                  <a [routerLink]="['/retros', r.id]">
+                  </form>
+                } @else {
+                  <a
+                    [routerLink]="['/retros', r.id]"
+                    [state]="{ returnTo: '/teams/' + t.id }"
+                  >
                     <div class="retro-heading">
                       <strong>{{ r.title }}</strong>
-                      <span class="badge">{{ phaseLabel(r.status) }}</span>
                     </div>
+                    <p class="retro-meta">
+                      @if (r.template?.name) {
+                        <span>{{ r.template!.name }}</span>
+                        <span class="sep">·</span>
+                      }
+                      <span
+                        >{{ r._count?.cards ?? 0 }}
+                        {{ (r._count?.cards ?? 0) === 1 ? 'tarjeta' : 'tarjetas' }}</span
+                      >
+                      <span class="sep">·</span>
+                      <span>{{ formatCreated(r.createdAt) }}</span>
+                    </p>
                     @if (r.participants?.length) {
                       <div class="avatar-stack">
                         @for (p of visibleParticipants(r); track p.id) {
@@ -209,127 +109,46 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                       </div>
                     }
                   </a>
-                  @if (isFacilitator()) {
-                    <button
-                      type="button"
-                      class="icon-btn trash"
-                      title="Borrar"
-                      aria-label="Borrar retrospectiva"
-                      (click)="deleteRetro(r.id, r.title)"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path
-                          d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                        />
-                      </svg>
-                    </button>
-                  }
-                </div>
-              } @empty {
-                <p class="empty-state">Todavía no hay retrospectivas.</p>
-              }
-            </div>
-          </section>
-        </div>
-
-        <section class="section due-section">
-          <h2>Por caducar</h2>
-          <div class="due-list">
-            @for (a of expiringActions(); track a.id) {
-              <a
-                class="card due-row"
-                [routerLink]="['/teams', t.id, 'actions']"
-                [queryParams]="actionBoardParams(a)"
-              >
-                <div class="due-main">
-                  <strong>{{ a.title }}</strong>
-                  <span class="due-sub">
-                    @if (a.owner) {
-                      <app-user-avatar
-                        [avatarId]="a.owner.avatarId"
-                        [ownerId]="a.owner.id"
-                        [seed]="a.owner.id"
-                        [name]="a.owner.name"
-                        size="sm"
-                      />
-                      {{ a.owner.name }}
-                    } @else {
-                      Sin asignar
+                  <div class="retro-actions">
+                    <span class="badge">{{ phaseLabel(r.status) }}</span>
+                    @if (isFacilitator()) {
+                      <button
+                        type="button"
+                        class="icon-btn edit"
+                        title="Editar nombre"
+                        aria-label="Editar nombre"
+                        (click)="startRename(r)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn trash"
+                        title="Borrar"
+                        aria-label="Borrar retrospectiva"
+                        (click)="deleteRetro(r.id, r.title)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                          />
+                        </svg>
+                      </button>
                     }
-                    @if (a.retro?.title) {
-                      <span class="due-sep">·</span>
-                      {{ a.retro.title }}
-                    }
-                  </span>
-                </div>
-                <div class="due-meta">
-                  <span class="badge">{{ statusLabel(a.status) }}</span>
-                  <span class="due-badge" [class.overdue]="isOverdue(a)">
-                    {{ urgencyLabel(a.dueDate) }}
-                  </span>
-                  @if (dueDateLabel(a.dueDate)) {
-                    <span class="due-date">{{ dueDateLabel(a.dueDate) }}</span>
-                  }
-                </div>
-              </a>
+                  </div>
+                }
+              </div>
             } @empty {
-              <p class="empty-state">No hay acciones por vencer en los próximos 14 días.</p>
+              <p class="empty-state">Todavía no hay retrospectivas.</p>
             }
           </div>
         </section>
       }
     </div>
-
-    @if (showInviteModal() && team(); as t) {
-      <div
-        class="modal-backdrop"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="invite-members-title"
-        (click)="closeInviteModal()"
-      >
-        <div class="card invite-modal" (click)="$event.stopPropagation()">
-          <h2 id="invite-members-title">Invitar miembros</h2>
-          <p class="invite-hint">
-            Compartí el enlace o el código para que se sumen al equipo (con
-            cuenta). También pueden pegar el código en el panel.
-          </p>
-          <div class="invite-block">
-            <span class="invite-label">Enlace</span>
-            <div class="invite-row">
-              <code>{{ teamInviteUrl(t.inviteCode) }}</code>
-              <button
-                type="button"
-                class="btn-secondary btn-sm"
-                [class.copied]="copiedKind() === 'link'"
-                (click)="copyInvite('link', t.inviteCode)"
-              >
-                {{ copiedKind() === 'link' ? 'Copiado' : 'Copiar' }}
-              </button>
-            </div>
-          </div>
-          <div class="invite-block">
-            <span class="invite-label">Código de equipo</span>
-            <div class="invite-row">
-              <code>{{ t.inviteCode }}</code>
-              <button
-                type="button"
-                class="btn-secondary btn-sm"
-                [class.copied]="copiedKind() === 'code'"
-                (click)="copyInvite('code', t.inviteCode)"
-              >
-                {{ copiedKind() === 'code' ? 'Copiado' : 'Copiar' }}
-              </button>
-            </div>
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn-ghost" (click)="closeInviteModal()">
-              Cerrar
-            </button>
-          </div>
-        </div>
-      </div>
-    }
 
     @if (showCreateModal()) {
       <div
@@ -445,55 +264,6 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         </div>
       </div>
     }
-
-    @if (showDeleteModal()) {
-      <div
-        class="modal-backdrop"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="delete-team-title"
-        (click)="closeDeleteModal()"
-      >
-        <div class="card delete-modal" (click)="$event.stopPropagation()">
-          <h2 id="delete-team-title">Borrar equipo</h2>
-          <p class="danger-hint">
-            Se eliminarán retrospectivas, miembros y acciones. Para confirmar,
-            escribí el nombre del equipo:
-            <strong>{{ team()?.name }}</strong>
-          </p>
-          <form class="delete-form" (ngSubmit)="confirmDeleteTeam()">
-            <div class="field">
-              <label for="delete-team-name">Nombre del equipo</label>
-              <input
-                id="delete-team-name"
-                name="deleteTeamName"
-                [(ngModel)]="deleteNameConfirm"
-                autocomplete="off"
-              />
-            </div>
-            @if (error()) {
-              <p class="form-error">{{ error() }}</p>
-            }
-            <div class="modal-actions">
-              <button
-                type="button"
-                class="btn-ghost"
-                (click)="closeDeleteModal()"
-              >
-                Cancelar
-              </button>
-              <button
-                class="btn-danger"
-                type="submit"
-                [disabled]="!canConfirmDelete() || deletingTeam()"
-              >
-                Borrar equipo
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    }
   `,
   styles: `
     .header-actions {
@@ -502,66 +272,12 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       gap: 0.65rem;
       align-items: center;
     }
-    .title-row {
-      display: flex;
-      align-items: center;
-      gap: 0.3em;
-      min-width: 0;
-      font-size: 1.75rem;
-      h1 {
-        min-width: 0;
-        font-size: 1em;
-        line-height: 1;
-      }
-    }
-    .star-btn {
-      flex-shrink: 0;
-      width: 1.15em;
-      height: 1.15em;
-      padding: 0;
-      border: none;
-      border-radius: var(--radius-sm);
-      background: transparent;
-      color: var(--color-text-muted);
-      cursor: pointer;
-      display: grid;
-      place-items: center;
-      translate: 0 -0.06em;
-    }
-    .star-btn:hover,
-    .star-btn.on {
-      color: var(--color-brand);
-    }
-    .star-icon {
-      width: 0.72em;
-      height: 0.72em;
-      display: block;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 1.5;
-      stroke-linejoin: round;
-    }
-    .star-btn.on .star-icon {
-      fill: currentColor;
-      stroke: none;
-    }
     .plus-icon {
       width: 1.05em;
       height: 1.05em;
       display: block;
       flex-shrink: 0;
       fill: currentColor;
-    }
-    .header-icon {
-      width: 1.05em;
-      height: 1.05em;
-      display: block;
-      flex-shrink: 0;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 1.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
     }
     .create-form { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 0.85rem; }
     .settings-grid {
@@ -590,58 +306,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       vertical-align: middle;
       margin-right: 0.25rem;
     }
-    .section { margin-bottom: 1.5rem; h2 { margin-bottom: 0.75rem; font-size: 1.1rem; } }
-    .team-columns {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 1.25rem;
-      margin-bottom: 1.5rem;
-      align-items: stretch;
-    }
-    .column-section {
-      margin-bottom: 0;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      height: 24rem;
-      h2 { flex-shrink: 0; }
-    }
-    .column-scroll {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      padding-right: 0.15rem;
-    }
-    .member-list { display: flex; flex-direction: column; gap: 0.5rem; }
-    .member-row {
-      padding: 0.75rem 1rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 0.75rem;
-    }
-    .pending-member {
-      opacity: 0.7;
-    }
-    .member-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-    }
-    .member-info {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.5rem;
-      min-width: 0;
-    }
-    .danger-hint {
-      margin: 0 0 0.85rem;
-      color: var(--color-text-muted);
-      font-size: 0.9rem;
-      line-height: 1.4;
-    }
+    .section { margin-bottom: 1.5rem; }
     .retro-list { display: flex; flex-direction: column; gap: 0.6rem; }
     .retro-row {
       padding: 0.75rem 0.9rem;
@@ -653,7 +318,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         display: flex;
         flex-direction: column;
         align-items: stretch;
-        gap: 0.45rem;
+        gap: 0.35rem;
         flex: 1;
         text-decoration: none;
         color: inherit;
@@ -663,7 +328,6 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
     }
     .retro-heading {
       display: flex;
-      justify-content: space-between;
       align-items: center;
       gap: 0.5rem;
       min-width: 0;
@@ -673,7 +337,46 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .badge { flex-shrink: 0; }
+    }
+    .retro-meta {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--color-text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .retro-meta .sep {
+      opacity: 0.55;
+    }
+    .retro-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+    .retro-actions .badge {
+      line-height: 1.85rem;
+      height: 1.85rem;
+      display: inline-flex;
+      align-items: center;
+    }
+    .rename-form {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      width: 100%;
+    }
+    .rename-form input {
+      flex: 1;
+      min-width: 10rem;
+      font: inherit;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-bg);
     }
     .avatar-stack {
       display: flex;
@@ -692,75 +395,6 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       font-weight: 700;
       color: var(--color-text-muted);
     }
-    .column-scroll .empty-state {
-      padding: 1.5rem 0.75rem;
-    }
-    .due-section {
-      margin-bottom: 0;
-    }
-    .due-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 0.6rem;
-      max-height: 18rem;
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      padding-right: 0.15rem;
-    }
-    .due-row {
-      padding: 0.8rem 0.95rem;
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0.45rem;
-      text-decoration: none;
-      color: inherit;
-      min-width: 0;
-      &:hover { text-decoration: none; }
-    }
-    .due-main {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-      min-width: 0;
-      strong {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-    }
-    .due-sub {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.3rem;
-      min-width: 0;
-      font-size: 0.82rem;
-      color: var(--color-text-muted);
-    }
-    .due-sep { opacity: 0.65; }
-    .due-meta {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    .due-badge {
-      font-size: 0.75rem;
-      font-weight: 700;
-      color: var(--color-brand);
-    }
-    .due-badge.overdue {
-      color: var(--color-danger);
-    }
-    .due-date {
-      font-size: 0.75rem;
-      color: var(--color-text-muted);
-    }
-    .due-list .empty-state {
-      grid-column: 1 / -1;
-      padding: 1.5rem 0.75rem;
-    }
     .icon-btn {
       appearance: none;
       flex-shrink: 0;
@@ -773,7 +407,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       background: transparent;
       border: 1.5px solid transparent;
       cursor: pointer;
-      color: var(--color-danger);
+      color: var(--color-brand);
       svg {
         width: 1.1rem;
         height: 1.1rem;
@@ -784,51 +418,14 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         stroke-linecap: round;
         stroke-linejoin: round;
       }
+      &.edit:hover {
+        background: var(--color-sky-soft);
+      }
+      &.trash {
+        color: var(--color-danger);
+      }
       &.trash:hover {
         background: var(--color-danger-soft);
-      }
-    }
-    .reminder {
-      padding: 0.85rem 1rem;
-      margin-bottom: 1rem;
-      background: var(--color-sky-soft);
-      border-color: var(--color-sky-mid);
-      color: var(--color-brand);
-      font-weight: 600;
-    }
-    .invite-hint {
-      margin: 0 0 0.85rem;
-      color: var(--color-text-muted);
-      font-size: 0.9rem;
-      line-height: 1.4;
-    }
-    .invite-block {
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-      & + .invite-block { margin-top: 0.85rem; }
-    }
-    .invite-label {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--color-text-muted);
-    }
-    .invite-row {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 0.65rem;
-      align-items: center;
-      code {
-        font-size: 0.8rem;
-        word-break: break-all;
-        background: var(--color-bg-muted);
-        padding: 0.55rem 0.7rem;
-        border-radius: var(--radius);
-      }
-      .copied {
-        background: var(--color-brand);
-        color: var(--color-on-brand);
-        border-color: var(--color-brand);
       }
     }
     .modal-backdrop {
@@ -847,28 +444,9 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       overflow: auto;
       padding: 1.35rem 1.4rem 1.25rem;
     }
-    .create-modal h2,
-    .delete-modal h2,
-    .invite-modal h2 {
+    .create-modal h2 {
       margin: 0;
       font-size: 1.15rem;
-    }
-    .delete-modal,
-    .invite-modal {
-      width: min(520px, 100%);
-      padding: 1.35rem 1.4rem 1.25rem;
-    }
-    .invite-modal .invite-hint {
-      margin-top: 0.5rem;
-    }
-    .invite-modal .modal-actions {
-      margin-top: 1rem;
-    }
-    .delete-form {
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-      margin-top: 0.85rem;
     }
     .modal-actions {
       display: flex;
@@ -876,27 +454,17 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       flex-wrap: wrap;
       gap: 0.65rem;
     }
-    @media (max-width: 800px) {
-      .team-columns { grid-template-columns: 1fr; }
-      .column-section { height: 20rem; }
-    }
-    @media (max-width: 640px) {
-      .invite-row { grid-template-columns: 1fr; }
-    }
   `,
 })
 export class TeamPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
-  private readonly favorites = inject(FavoriteTeamsService);
-  private readonly joinRequests = inject(JoinRequestService);
   private readonly sockets = inject(SocketService);
   private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
   team = signal<TeamDetail | null>(null);
-  actions = signal<ActionItem[]>([]);
   templates = signal<Template[]>([]);
   title = '';
   templateId = '';
@@ -907,28 +475,23 @@ export class TeamPage implements OnInit, OnDestroy {
   allowAnonymous = true;
   allowCrossColumnGrouping = false;
   error = signal('');
-  reminder = signal<number | null>(null);
-  copiedKind = signal<'' | 'link' | 'code'>('');
   showCreateModal = signal(false);
-  showInviteModal = signal(false);
-  showDeleteModal = signal(false);
-  deletingTeam = signal(false);
-  deleteNameConfirm = '';
-  resolvingRequestId = signal('');
-  private inviteCopyTimer: ReturnType<typeof setTimeout> | null = null;
+  renamingId = signal<string | null>(null);
+  renameTitle = '';
 
   private readonly maxVisibleParticipants = 6;
-  private readonly dueSoonDays = 14;
-
-  constructor() {
-    effect(() => {
-      const version = this.joinRequests.changed();
-      if (version === 0) return;
-      untracked(() => this.reloadTeam());
-    });
-  }
 
   phaseLabel = (s: keyof typeof PHASE_LABELS) => PHASE_LABELS[s];
+
+  formatCreated(iso: string) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('es-AR', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  }
 
   selectedTemplate() {
     return this.templates().find((t) => t.id === this.templateId) ?? null;
@@ -947,19 +510,11 @@ export class TeamPage implements OnInit, OnDestroy {
   }
 
   isFacilitator() {
-    const userId = this.currentUserId();
+    const userId = this.auth.user()?.id;
     if (!userId) return false;
     return this.team()?.members.some(
       (m) => m.user.id === userId && m.role === 'facilitator',
     );
-  }
-
-  currentUserId() {
-    return this.auth.user()?.id;
-  }
-
-  roleLabel(role: string) {
-    return role === 'facilitator' ? 'Facilitador' : 'Miembro';
   }
 
   visibleParticipants(retro: RetroSummary) {
@@ -978,126 +533,37 @@ export class TeamPage implements OnInit, OnDestroy {
       .join(', ');
   }
 
-  expiringActions() {
-    return this.actions()
-      .filter((a) => a.status === 'pending' || a.status === 'doing')
-      .filter((a) => {
-        const days = daysUntilDue(a.dueDate);
-        return days !== null && days <= this.dueSoonDays;
-      })
-      .sort((a, b) => (daysUntilDue(a.dueDate) ?? 0) - (daysUntilDue(b.dueDate) ?? 0));
+  startRename(r: RetroSummary) {
+    this.renamingId.set(r.id);
+    this.renameTitle = r.title;
   }
 
-  isOverdue(action: ActionItem) {
-    const days = daysUntilDue(action.dueDate);
-    return days !== null && days < 0;
+  cancelRename() {
+    this.renamingId.set(null);
+    this.renameTitle = '';
   }
 
-  urgencyLabel(iso?: string | null) {
-    return dueUrgencyLabel(iso);
-  }
-
-  dueDateLabel(iso?: string | null) {
-    return formatDueDate(iso);
-  }
-
-  statusLabel(status: ActionItem['status']) {
-    return ACTION_STATUS_LABELS[status];
-  }
-
-  actionBoardParams(action: ActionItem) {
-    return { retro: action.retroId || '__none__' };
-  }
-
-  toggleFavorite() {
-    const team = this.team();
-    if (!team) return;
-    this.favorites.setFavorite(team.id, !team.favorited, team.name).subscribe({
-      next: (res) => {
-        const current = this.team();
-        if (!current || current.id !== team.id) return;
-        this.team.set({ ...current, favorited: res.favorited });
-      },
-      error: (e) =>
-        this.toast.error(httpErrorMessage(e, 'No se pudo destacar el equipo')),
-    });
-  }
-
-  removeMember(member: TeamMember) {
-    const team = this.team();
-    if (!team) return;
-    if (
-      !confirm(
-        `¿Sacar a ${member.user.name} del equipo? Si no pertenece a otro equipo, se borrará su cuenta.`,
-      )
-    ) {
+  saveRename(r: RetroSummary) {
+    const title = this.renameTitle.trim();
+    if (!title || title === r.title) {
+      this.cancelRename();
       return;
     }
-    this.error.set('');
-    this.api.removeTeamMember(team.id, member.user.id).subscribe({
+    this.api.renameRetro(r.id, title).subscribe({
       next: () => {
         const current = this.team();
         if (!current) return;
         this.team.set({
           ...current,
-          members: current.members.filter((m) => m.id !== member.id),
+          retrospectives: current.retrospectives.map((item) =>
+            item.id === r.id ? { ...item, title } : item,
+          ),
         });
+        this.cancelRename();
       },
       error: (e) =>
-        this.error.set(e?.error?.message || 'No se pudo sacar al miembro'),
+        this.toast.error(httpErrorMessage(e, 'No se pudo renombrar')),
     });
-  }
-
-  openDeleteModal() {
-    this.error.set('');
-    this.deleteNameConfirm = '';
-    this.deletingTeam.set(false);
-    this.showDeleteModal.set(true);
-    queueMicrotask(() =>
-      document.getElementById('delete-team-name')?.focus(),
-    );
-  }
-
-  closeDeleteModal() {
-    this.showDeleteModal.set(false);
-    this.deleteNameConfirm = '';
-    this.deletingTeam.set(false);
-  }
-
-  canConfirmDelete() {
-    return this.deleteNameConfirm.trim() === (this.team()?.name ?? '');
-  }
-
-  confirmDeleteTeam() {
-    const team = this.team();
-    if (!team || !this.canConfirmDelete() || this.deletingTeam()) return;
-    this.error.set('');
-    this.deletingTeam.set(true);
-    this.api.deleteTeam(team.id).subscribe({
-      next: () => {
-        this.auth.refreshProfile().subscribe(() => {
-          void this.router.navigate(['/dashboard']);
-        });
-      },
-      error: (e) => {
-        this.deletingTeam.set(false);
-        this.error.set(e?.error?.message || 'No se pudo borrar el equipo');
-      },
-    });
-  }
-
-  teamInviteUrl(inviteCode: string) {
-    return `${window.location.origin}/join-team/${inviteCode}`;
-  }
-
-  openInviteModal() {
-    this.error.set('');
-    this.copiedKind.set('');
-    this.showInviteModal.set(true);
-  }
-
-  closeInviteModal() {
-    this.showInviteModal.set(false);
   }
 
   openCreateModal() {
@@ -1112,32 +578,11 @@ export class TeamPage implements OnInit, OnDestroy {
 
   @HostListener('document:keydown.escape')
   onEscape() {
-    if (this.showDeleteModal()) {
-      this.closeDeleteModal();
+    if (this.renamingId()) {
+      this.cancelRename();
       return;
     }
-    if (this.showCreateModal()) {
-      this.closeCreateModal();
-      return;
-    }
-    if (this.showInviteModal()) this.closeInviteModal();
-  }
-
-  async copyInvite(kind: 'link' | 'code', inviteCode: string) {
-    const value =
-      kind === 'link' ? this.teamInviteUrl(inviteCode) : inviteCode;
-    try {
-      await navigator.clipboard.writeText(value);
-      this.copiedKind.set(kind);
-    } catch {
-      this.copiedKind.set('');
-      this.error.set(
-        kind === 'link' ? 'No se pudo copiar el enlace' : 'No se pudo copiar el código',
-      );
-      return;
-    }
-    if (this.inviteCopyTimer) clearTimeout(this.inviteCopyTimer);
-    this.inviteCopyTimer = setTimeout(() => this.copiedKind.set(''), 2200);
+    if (this.showCreateModal()) this.closeCreateModal();
   }
 
   deleteRetro(id: string, title: string) {
@@ -1163,7 +608,7 @@ export class TeamPage implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
-    this.reloadTeam();
+    this.route.paramMap.subscribe(() => this.reloadTeam());
     this.sockets.connect();
     this.sockets.on('avatar-changed', this.onAvatarChanged);
     this.api.listTemplates().subscribe((t) => {
@@ -1177,88 +622,28 @@ export class TeamPage implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.sockets.off('avatar-changed', this.onAvatarChanged);
-    if (this.inviteCopyTimer) clearTimeout(this.inviteCopyTimer);
   }
 
   private readonly onAvatarChanged = (payload: unknown) => {
     const event = parseAvatarChanged(payload);
     const team = this.team();
     if (!event || !team) return;
-    const members = team.members.map((m) =>
-      m.user.id === event.userId
-        ? { ...m, user: { ...m.user, avatarId: event.avatarId } }
-        : m,
-    );
-    const joinRequests = (team.joinRequests ?? []).map((req) =>
-      req.user.id === event.userId
-        ? { ...req, user: { ...req.user, avatarId: event.avatarId } }
-        : req,
-    );
     const retrospectives = team.retrospectives.map((r) => ({
       ...r,
       participants: (r.participants ?? []).map((p) =>
         p.ownerId === event.userId ? { ...p, avatarId: event.avatarId } : p,
       ),
     }));
-    if (
-      members.every((m, i) => m === team.members[i]) &&
-      joinRequests.every((req, i) => req === (team.joinRequests ?? [])[i]) &&
-      retrospectives.every((r, i) => r === team.retrospectives[i])
-    ) {
+    if (retrospectives.every((r, i) => r === team.retrospectives[i])) {
       return;
     }
-    this.team.set({ ...team, members, joinRequests, retrospectives });
-    this.actions.update((items) =>
-      items.map((a) =>
-        a.owner?.id === event.userId
-          ? { ...a, owner: { ...a.owner, avatarId: event.avatarId } }
-          : a,
-      ),
-    );
+    this.team.set({ ...team, retrospectives });
   };
 
   reloadTeam() {
     const id = this.route.snapshot.paramMap.get('id');
     if (!id) return;
     this.api.getTeam(id).subscribe((t) => this.team.set(t));
-    this.api.listActions(id).subscribe({
-      next: (items) => this.actions.set(items),
-      error: () => this.actions.set([]),
-    });
-  }
-
-  acceptJoin(request: TeamJoinRequest) {
-    const team = this.team();
-    if (!team || this.resolvingRequestId()) return;
-    this.error.set('');
-    this.resolvingRequestId.set(request.id);
-    this.api.acceptJoinRequest(team.id, request.id).subscribe({
-      next: () => {
-        this.resolvingRequestId.set('');
-        this.reloadTeam();
-      },
-      error: (e) => {
-        this.resolvingRequestId.set('');
-        this.error.set(e?.error?.message || 'No se pudo confirmar');
-      },
-    });
-  }
-
-  rejectJoin(request: TeamJoinRequest) {
-    const team = this.team();
-    if (!team || this.resolvingRequestId()) return;
-    this.error.set('');
-    this.resolvingRequestId.set(request.id);
-    this.api.rejectJoinRequest(team.id, request.id).subscribe({
-      next: () => {
-        this.resolvingRequestId.set('');
-        this.reloadTeam();
-      },
-      error: (e) => {
-        this.resolvingRequestId.set('');
-        this.error.set(e?.error?.message || 'No se pudo rechazar');
-      },
-    });
   }
 
   createRetro() {
@@ -1278,11 +663,10 @@ export class TeamPage implements OnInit, OnDestroy {
       })
       .subscribe({
         next: (retro) => {
-          if (retro.openActionsReminder) {
-            this.reminder.set(retro.openActionsReminder);
-          }
           this.closeCreateModal();
-          void this.router.navigate(['/retros', retro.id]);
+          void this.router.navigate(['/retros', retro.id], {
+            state: { returnTo: `/teams/${team.id}` },
+          });
         },
         error: (e) => this.error.set(e?.error?.message || 'Error al crear'),
       });

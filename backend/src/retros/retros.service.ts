@@ -262,9 +262,15 @@ export class RetrosService {
     dto: UpdateSettingsDto,
   ) {
     await this.assertFacilitatorOfRetro(user, retroId);
+    const title =
+      dto.title !== undefined ? dto.title.trim() : undefined;
+    if (dto.title !== undefined && !title) {
+      throw new BadRequestException('Title is required');
+    }
     const updated = await this.prisma.retrospective.update({
       where: { id: retroId },
       data: {
+        ...(title !== undefined && { title }),
         ...(dto.maxCommentsPerParticipant !== undefined && {
           maxCommentsPerParticipant: dto.maxCommentsPerParticipant,
         }),
@@ -287,6 +293,7 @@ export class RetrosService {
     });
 
     this.events.emit(retroId, 'settings-changed', {
+      title: updated.title,
       maxCommentsPerParticipant: updated.maxCommentsPerParticipant,
       votesPerParticipant: updated.votesPerParticipant,
       maxVotesPerCard: updated.maxVotesPerCard,

@@ -72,6 +72,7 @@
   }
 
   .retro-heading,
+  .exit-btn,
   .meta-stat,
   .meta-bar .hint,
   .chip-select {
@@ -82,6 +83,10 @@
   .retro-heading {
     border-radius: var(--radius);
     padding: 0.4rem 0.85rem 0.5rem;
+  }
+
+  .exit-btn {
+    border-radius: 999px;
   }
 
   .meta-stat,
@@ -102,10 +107,22 @@
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1rem;
+  align-items: center;
+
+  .heading-cluster {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
 
   h1 {
     font-size: 1.5rem;
     color: var(--color-text);
+  }
+
+  .exit-btn {
+    flex-shrink: 0;
   }
 
   .eyebrow {

@@ -34,6 +34,12 @@ export const routes: Routes = [
       import('./pages/dashboard/dashboard.page').then((m) => m.DashboardPage),
   },
   {
+    path: 'teams',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./pages/teams/teams.page').then((m) => m.TeamsPage),
+  },
+  {
     path: 'templates',
     canActivate: [authGuard, facilitatorGuard],
     loadComponent: () =>
@@ -66,6 +72,12 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () =>
       import('./pages/actions/actions.page').then((m) => m.ActionsPage),
+  },
+  {
+    path: 'teams/:id/members',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./pages/members/members.page').then((m) => m.MembersPage),
   },
   {
     path: 'retros/:id',

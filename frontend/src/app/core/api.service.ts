@@ -7,9 +7,11 @@ import {
   CreateRetroPayload,
   CreateTemplatePayload,
   JoinRetroResponse,
+  OutgoingTeamInvite,
   RetroBoard,
   RetroReport,
   TeamDetail,
+  TeamInvite,
   TeamJoinRequest,
   TeamSummary,
   Template,
@@ -26,8 +28,67 @@ export class ApiService {
     return this.http.get<TeamSummary[]>(`${this.base}/teams`);
   }
 
-  createTeam(name: string) {
-    return this.http.post<TeamDetail>(`${this.base}/teams`, { name });
+  createTeam(name: string, inviteEmails?: string[]) {
+    return this.http.post<TeamDetail>(`${this.base}/teams`, {
+      name,
+      ...(inviteEmails?.length ? { inviteEmails } : {}),
+    });
+  }
+
+  updateTeam(id: string, payload: { name?: string }) {
+    return this.http.patch<TeamDetail>(`${this.base}/teams/${id}`, payload);
+  }
+
+  uploadTeamLogo(id: string, file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<TeamDetail>(`${this.base}/teams/${id}/logo`, form);
+  }
+
+  deleteTeamLogo(id: string) {
+    return this.http.delete<TeamDetail>(`${this.base}/teams/${id}/logo`);
+  }
+
+  searchUsersByEmail(email: string) {
+    return this.http.get<
+      { id: string; name: string; email: string; avatarId?: string | null }[]
+    >(`${this.base}/users/search`, { params: { email } });
+  }
+
+  inviteTeamMember(teamId: string, email: string) {
+    return this.http.post<TeamInvite>(`${this.base}/teams/${teamId}/invites`, {
+      email,
+    });
+  }
+
+  listOutgoingTeamInvites(teamId: string) {
+    return this.http.get<OutgoingTeamInvite[]>(
+      `${this.base}/teams/${teamId}/invites`,
+    );
+  }
+
+  cancelTeamInvite(teamId: string, inviteId: string) {
+    return this.http.delete<{ cancelled: boolean; teamId: string; teamName: string }>(
+      `${this.base}/teams/${teamId}/invites/${inviteId}`,
+    );
+  }
+
+  listIncomingTeamInvites() {
+    return this.http.get<TeamInvite[]>(`${this.base}/teams/invites/incoming`);
+  }
+
+  acceptTeamInvite(inviteId: string) {
+    return this.http.post<{ accepted: boolean; teamId: string; teamName: string }>(
+      `${this.base}/teams/invites/${inviteId}/accept`,
+      {},
+    );
+  }
+
+  rejectTeamInvite(inviteId: string) {
+    return this.http.post<{ rejected: boolean; teamId: string; teamName: string }>(
+      `${this.base}/teams/invites/${inviteId}/reject`,
+      {},
+    );
   }
 
   joinTeam(inviteCode: string) {
@@ -48,7 +109,7 @@ export class ApiService {
   }
 
   removeTeamMember(teamId: string, userId: string) {
-    return this.http.delete<{ removed: boolean; accountDeleted: boolean }>(
+    return this.http.delete<{ removed: boolean }>(
       `${this.base}/teams/${teamId}/members/${userId}`,
     );
   }
@@ -187,6 +248,10 @@ export class ApiService {
 
   updateSettings(id: string, settings: Record<string, unknown>) {
     return this.http.patch(`${this.base}/retros/${id}/settings`, settings);
+  }
+
+  renameRetro(id: string, title: string) {
+    return this.http.patch(`${this.base}/retros/${id}/settings`, { title });
   }
 
   advancePhase(id: string, status: string) {

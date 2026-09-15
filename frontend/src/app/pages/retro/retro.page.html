@@ -15,12 +15,30 @@
     }
   <div class="retro-shell">
     <header class="retro-header">
-      <div class="retro-heading">
-        <p class="eyebrow">{{ r.team?.name }}</p>
-        <h1>{{ r.title }}</h1>
-        @if (isSpectator()) {
-          <p class="spectator-badge">Modo espectador</p>
-        }
+      <div class="heading-cluster">
+        <button
+          type="button"
+          class="btn-ghost btn-sm header-icon-btn exit-btn"
+          title="Salir"
+          aria-label="Salir"
+          (click)="exitRetro()"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M11.012 3.75a1.5 1.5 0 0 0-1.5 1.5v1.5a.75.75 0 0 1-1.5 0V5.25a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v13.5a3 3 0 0 1-3 3h-6a3 3 0 0 1-3-3v-1.5a.75.75 0 0 1 1.5 0v1.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5V5.25a1.5 1.5 0 0 0-1.5-1.5h-6Z"
+            />
+            <path
+              d="M4.72 12.53a.75.75 0 0 1 0-1.06l3.75-3.75a.75.75 0 1 1 1.06 1.06L7.06 11.25h9.19a.75.75 0 0 1 0 1.5H7.06l2.47 2.47a.75.75 0 1 1-1.06 1.06l-3.75-3.75Z"
+            />
+          </svg>
+        </button>
+        <div class="retro-heading">
+          <p class="eyebrow">{{ r.team?.name }}</p>
+          <h1>{{ r.title }}</h1>
+          @if (isSpectator()) {
+            <p class="spectator-badge">Modo espectador</p>
+          }
+        </div>
       </div>
       <div class="header-actions">
         @if (presence().length) {

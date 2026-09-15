@@ -1,5 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActiveTeamService } from '../../core/active-team.service';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 
@@ -83,8 +84,8 @@ import { AuthService } from '../../core/auth.service';
 export class JoinTeamPage implements OnInit {
   private readonly api = inject(ApiService);
   readonly auth = inject(AuthService);
+  private readonly activeTeams = inject(ActiveTeamService);
   private readonly route = inject(ActivatedRoute);
-  private readonly router = inject(Router);
 
   code = '';
   loading = signal(false);
@@ -106,7 +107,7 @@ export class JoinTeamPage implements OnInit {
     this.api.joinTeam(this.code).subscribe({
       next: (team) => {
         this.loading.set(false);
-        void this.router.navigate(['/teams', team.id]);
+        this.activeTeams.enterTeam(team.id, team.name);
       },
       error: (e) => {
         this.loading.set(false);

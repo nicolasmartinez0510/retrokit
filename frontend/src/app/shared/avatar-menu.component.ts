@@ -76,10 +76,14 @@ import { UserAvatarComponent } from './user-avatar.component';
     }
     .popover {
       position: absolute;
-      top: calc(100% + 0.5rem);
-      right: 0;
+      bottom: calc(100% + 0.5rem);
+      left: 0;
+      right: auto;
+      top: auto;
       z-index: 40;
       width: min(24rem, calc(100vw - 2rem));
+      max-height: min(70vh, 28rem);
+      overflow: auto;
       padding: 0.75rem;
       background: var(--color-bg);
       border: 1px solid var(--color-border);

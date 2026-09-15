@@ -136,12 +136,12 @@ export class RetroPage implements OnInit, OnDestroy {
   private readonly injector = inject(Injector);
 
   private retroId = '';
+  private returnTo: string | null = null;
   private readonly refreshBoard = () => {
     if (this.retroId) this.reload(this.retroId);
   };
   private readonly onRetroDeleted = () => {
-    const teamId = this.retro()?.teamId;
-    void this.router.navigate(teamId ? ['/teams', teamId] : ['/dashboard']);
+    this.exitRetro();
   };
   private readonly boardEvents = [
     'phase-changed',
@@ -335,6 +335,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.retroId = this.route.snapshot.paramMap.get('id')!;
+    this.returnTo = this.captureReturnTo(this.retroId);
     this.reload(this.retroId);
     this.sockets.joinRetro(this.retroId);
     for (const event of this.boardEvents) {
@@ -363,6 +364,39 @@ export class RetroPage implements OnInit, OnDestroy {
     this.clearEditImagePreview();
     this.sockets.leaveRetro(this.retroId);
     if (!this.auth.isUser()) this.sockets.disconnect();
+  }
+
+  exitRetro() {
+    const dest =
+      this.returnTo ??
+      (this.retro()?.teamId
+        ? `/teams/${this.retro()!.teamId}`
+        : '/dashboard');
+    void this.router.navigateByUrl(dest);
+  }
+
+  private captureReturnTo(retroId: string): string | null {
+    const key = `rk:retro-return:${retroId}`;
+    const fromNav = (history.state as { returnTo?: string } | null)?.returnTo;
+    if (fromNav && this.isSafeReturnTo(fromNav)) {
+      try {
+        sessionStorage.setItem(key, fromNav);
+      } catch {
+        /* ignore quota / private mode */
+      }
+      return fromNav;
+    }
+    try {
+      const stored = sessionStorage.getItem(key);
+      if (stored && this.isSafeReturnTo(stored)) return stored;
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+
+  private isSafeReturnTo(path: string): boolean {
+    return path === '/dashboard' || /^\/teams\/[a-zA-Z0-9_-]+$/.test(path);
   }
 
   throwConfetti() {

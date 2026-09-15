@@ -1,7 +1,7 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { formatDueDate, toDateInputValue } from '../../core/dates';
@@ -20,7 +20,6 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
   selector: 'app-actions-page',
   imports: [
     FormsModule,
-    RouterLink,
     UserAvatarComponent,
     ActionItemModalComponent,
     CdkDropListGroup,
@@ -56,7 +55,6 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
           <button type="button" class="btn-primary" (click)="openCreate()">
             + Agregar acción
           </button>
-          <a class="btn-secondary" [routerLink]="['/teams', teamId]">Volver al equipo</a>
         </div>
       </div>
 

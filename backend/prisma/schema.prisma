@@ -29,27 +29,31 @@ enum ActionStatus {
 }
 
 model User {
-  id           String            @id @default(cuid())
-  email        String            @unique
-  passwordHash String
-  name         String
-  avatarId     String?
-  createdAt    DateTime          @default(now())
-  memberships  TeamMember[]
-  participants Participant[]
-  ownedActions ActionItem[]      @relation("ActionOwner")
-  joinRequests TeamJoinRequest[]
+  id             String            @id @default(cuid())
+  email          String            @unique
+  passwordHash   String
+  name           String
+  avatarId       String?
+  createdAt      DateTime          @default(now())
+  memberships    TeamMember[]
+  participants   Participant[]
+  ownedActions   ActionItem[]      @relation("ActionOwner")
+  joinRequests   TeamJoinRequest[]
+  invitesSent    TeamInvite[]      @relation("TeamInvitesSent")
+  invitesReceived TeamInvite[]     @relation("TeamInvitesReceived")
 }
 
 model Team {
   id             String            @id @default(cuid())
   name           String
+  logoUrl        String?
   inviteCode     String            @unique @default(cuid())
   createdAt      DateTime          @default(now())
   members        TeamMember[]
   retrospectives Retrospective[]
   actionItems    ActionItem[]
   joinRequests   TeamJoinRequest[]
+  invites        TeamInvite[]
 }
 
 model TeamMember {
@@ -73,6 +77,28 @@ model TeamJoinRequest {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([teamId, userId])
+}
+
+enum TeamInviteStatus {
+  pending
+  accepted
+  rejected
+}
+
+model TeamInvite {
+  id        String           @id @default(cuid())
+  teamId    String
+  inviterId String
+  inviteeId String
+  status    TeamInviteStatus @default(pending)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  team      Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  inviter   User             @relation("TeamInvitesSent", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee   User             @relation("TeamInvitesReceived", fields: [inviteeId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, inviteeId])
+  @@index([inviteeId, status])
 }
 
 model Template {

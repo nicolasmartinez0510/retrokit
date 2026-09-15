@@ -59,6 +59,7 @@ export interface AuthResponse {
 export interface TeamSummary {
   id: string;
   name: string;
+  logoUrl?: string | null;
   inviteCode: string;
   createdAt: string;
   _count?: { members: number; retrospectives: number; joinRequests?: number };
@@ -83,6 +84,30 @@ export interface TeamJoinRequest {
   user: { id: string; name: string; email: string; avatarId?: string | null };
 }
 
+export interface TeamInvite {
+  id: string;
+  teamId: string;
+  teamName: string;
+  teamLogoUrl?: string | null;
+  createdAt: string;
+  inviter: { id: string; name: string; email: string; avatarId?: string | null };
+}
+
+export interface OutgoingTeamInvite {
+  id: string;
+  teamId: string;
+  createdAt: string;
+  invitee: { id: string; name: string; email: string; avatarId?: string | null };
+  inviter: { id: string; name: string; email: string; avatarId?: string | null };
+}
+
+export interface UserSearchHit {
+  id: string;
+  name: string;
+  email: string;
+  avatarId?: string | null;
+}
+
 export interface RetroParticipantSummary {
   id: string;
   name: string;
@@ -96,12 +121,15 @@ export interface RetroSummary {
   status: RetroStatus;
   createdAt: string;
   closedAt?: string | null;
+  template?: { name: string } | null;
+  _count?: { cards: number };
   participants?: RetroParticipantSummary[];
 }
 
 export interface TeamDetail {
   id: string;
   name: string;
+  logoUrl?: string | null;
   inviteCode: string;
   createdAt: string;
   members: TeamMember[];

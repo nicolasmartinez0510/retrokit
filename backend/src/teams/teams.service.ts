@@ -4,14 +4,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TeamRole } from '@prisma/client';
+import { TeamInviteStatus, TeamRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeEventsService } from '../realtime/realtime-events.service';
 import {
   resolveParticipantAvatar,
   userPublicSelect,
 } from '../common/avatars';
-import { CreateTeamDto, JoinTeamDto, UpdateTeamDto } from './dto/teams.dto';
+import { UploadsService } from '../uploads/uploads.service';
+import {
+  CreateTeamDto,
+  InviteTeamMemberDto,
+  JoinTeamDto,
+  UpdateTeamDto,
+} from './dto/teams.dto';
 
 const joinRequestUserSelect = userPublicSelect;
 const MAX_FAVORITE_TEAMS = 3;
@@ -22,6 +28,8 @@ const retroSummarySelect = {
   status: true,
   createdAt: true,
   closedAt: true,
+  template: { select: { name: true } },
+  _count: { select: { cards: true } },
   participants: {
     orderBy: { id: 'asc' as const },
     select: {
@@ -39,6 +47,7 @@ export class TeamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: RealtimeEventsService,
+    private readonly uploads: UploadsService,
   ) {}
 
   async create(userId: string, dto: CreateTeamDto) {
@@ -59,6 +68,18 @@ export class TeamsService {
         },
       },
     });
+
+    const emails = (dto.inviteEmails ?? [])
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    for (const email of emails) {
+      try {
+        await this.inviteByEmail(userId, team.id, { email });
+      } catch {
+        /* skip invalid/duplicate invites on create */
+      }
+    }
+
     return this.withMappedRetros(team);
   }
 
@@ -173,15 +194,277 @@ export class TeamsService {
     await this.assertFacilitator(userId, teamId);
     await this.prisma.team.update({
       where: { id: teamId },
-      data: { name: dto.name?.trim() },
+      data: { ...(dto.name !== undefined ? { name: dto.name.trim() } : {}) },
     });
+    return this.getOne(userId, teamId);
+  }
+
+  async uploadLogo(
+    userId: string,
+    teamId: string,
+    file: Express.Multer.File,
+  ) {
+    await this.assertFacilitator(userId, teamId);
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { logoUrl: true },
+    });
+    if (!team) throw new NotFoundException('Team not found');
+    const url = await this.uploads.saveTeamLogo(teamId, file);
+    await this.prisma.team.update({
+      where: { id: teamId },
+      data: { logoUrl: url },
+    });
+    if (team.logoUrl && team.logoUrl !== url) {
+      await this.uploads.deleteByPublicUrl(team.logoUrl);
+    }
+    return this.getOne(userId, teamId);
+  }
+
+  async deleteLogo(userId: string, teamId: string) {
+    await this.assertFacilitator(userId, teamId);
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { logoUrl: true },
+    });
+    if (!team) throw new NotFoundException('Team not found');
+    await this.prisma.team.update({
+      where: { id: teamId },
+      data: { logoUrl: null },
+    });
+    await this.uploads.deleteByPublicUrl(team.logoUrl);
+    await this.uploads.deleteTeamLogoDir(teamId);
     return this.getOne(userId, teamId);
   }
 
   async remove(userId: string, teamId: string) {
     await this.assertFacilitator(userId, teamId);
     await this.prisma.team.delete({ where: { id: teamId } });
+    await this.uploads.deleteTeamLogoDir(teamId);
     return { deleted: true };
+  }
+
+  async inviteByEmail(
+    actorId: string,
+    teamId: string,
+    dto: InviteTeamMemberDto,
+  ) {
+    await this.assertFacilitator(actorId, teamId);
+    const email = dto.email.trim().toLowerCase();
+    const invitee = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: userPublicSelect,
+    });
+    if (!invitee) {
+      throw new NotFoundException('No hay un usuario registrado con ese email');
+    }
+    if (invitee.id === actorId) {
+      throw new BadRequestException('No podés invitarte a vos mismo');
+    }
+
+    const membership = await this.prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId: invitee.id } },
+    });
+    if (membership) {
+      throw new BadRequestException('Esa persona ya es miembro del equipo');
+    }
+
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { id: true, name: true, logoUrl: true },
+    });
+    if (!team) throw new NotFoundException('Team not found');
+
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: actorId },
+      select: userPublicSelect,
+    });
+
+    const existing = await this.prisma.teamInvite.findUnique({
+      where: { teamId_inviteeId: { teamId, inviteeId: invitee.id } },
+    });
+
+    let invite;
+    if (existing) {
+      if (existing.status === TeamInviteStatus.pending) {
+        throw new BadRequestException('Ya hay una invitación pendiente');
+      }
+      invite = await this.prisma.teamInvite.update({
+        where: { id: existing.id },
+        data: {
+          status: TeamInviteStatus.pending,
+          inviterId: actorId,
+        },
+      });
+    } else {
+      invite = await this.prisma.teamInvite.create({
+        data: {
+          teamId,
+          inviterId: actorId,
+          inviteeId: invitee.id,
+          status: TeamInviteStatus.pending,
+        },
+      });
+    }
+
+    const payload = {
+      id: invite.id,
+      teamId: team.id,
+      teamName: team.name,
+      teamLogoUrl: team.logoUrl,
+      createdAt: invite.createdAt,
+      inviter: inviter!,
+    };
+    this.events.emitToUser(invitee.id, 'team-invite', payload);
+    return payload;
+  }
+
+  async listOutgoingInvites(actorId: string, teamId: string) {
+    await this.assertFacilitator(actorId, teamId);
+    const invites = await this.prisma.teamInvite.findMany({
+      where: { teamId, status: TeamInviteStatus.pending },
+      include: {
+        invitee: { select: userPublicSelect },
+        inviter: { select: userPublicSelect },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return invites.map((invite) => ({
+      id: invite.id,
+      teamId: invite.teamId,
+      createdAt: invite.createdAt,
+      invitee: invite.invitee,
+      inviter: invite.inviter,
+    }));
+  }
+
+  async cancelInvite(actorId: string, teamId: string, inviteId: string) {
+    await this.assertFacilitator(actorId, teamId);
+    const invite = await this.prisma.teamInvite.findUnique({
+      where: { id: inviteId },
+      include: { team: { select: { name: true } } },
+    });
+    if (!invite || invite.teamId !== teamId) {
+      throw new NotFoundException('Invitation not found');
+    }
+    if (invite.status !== TeamInviteStatus.pending) {
+      throw new BadRequestException('Invitation is not pending');
+    }
+    await this.prisma.teamInvite.update({
+      where: { id: invite.id },
+      data: { status: TeamInviteStatus.rejected },
+    });
+    this.events.emitToUser(invite.inviteeId, 'team-invite-resolved', {
+      id: invite.id,
+      teamId: invite.teamId,
+      accepted: false,
+      inviteeId: invite.inviteeId,
+    });
+    return { cancelled: true, teamId: invite.teamId, teamName: invite.team.name };
+  }
+
+  async listIncomingInvites(userId: string) {
+    const invites = await this.prisma.teamInvite.findMany({
+      where: { inviteeId: userId, status: TeamInviteStatus.pending },
+      include: {
+        team: { select: { id: true, name: true, logoUrl: true } },
+        inviter: { select: userPublicSelect },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return invites.map((invite) => ({
+      id: invite.id,
+      teamId: invite.team.id,
+      teamName: invite.team.name,
+      teamLogoUrl: invite.team.logoUrl,
+      createdAt: invite.createdAt,
+      inviter: invite.inviter,
+    }));
+  }
+
+  async acceptInvite(userId: string, inviteId: string) {
+    const invite = await this.prisma.teamInvite.findUnique({
+      where: { id: inviteId },
+      include: { team: { select: { id: true, name: true } } },
+    });
+    if (!invite || invite.inviteeId !== userId) {
+      throw new NotFoundException('Invitación no encontrada');
+    }
+    if (invite.status !== TeamInviteStatus.pending) {
+      throw new BadRequestException('La invitación ya fue resuelta');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.teamMember.upsert({
+        where: {
+          teamId_userId: { teamId: invite.teamId, userId },
+        },
+        create: {
+          teamId: invite.teamId,
+          userId,
+          role: TeamRole.member,
+        },
+        update: {},
+      }),
+      this.prisma.teamInvite.update({
+        where: { id: invite.id },
+        data: { status: TeamInviteStatus.accepted },
+      }),
+      this.prisma.teamJoinRequest.deleteMany({
+        where: { teamId: invite.teamId, userId },
+      }),
+    ]);
+
+    await this.emitTeamInviteResolved(invite.teamId, {
+      id: invite.id,
+      teamId: invite.teamId,
+      teamName: invite.team.name,
+      accepted: true,
+      inviteeId: userId,
+    });
+    return { accepted: true, teamId: invite.teamId, teamName: invite.team.name };
+  }
+
+  async rejectInvite(userId: string, inviteId: string) {
+    const invite = await this.prisma.teamInvite.findUnique({
+      where: { id: inviteId },
+      include: { team: { select: { id: true, name: true } } },
+    });
+    if (!invite || invite.inviteeId !== userId) {
+      throw new NotFoundException('Invitación no encontrada');
+    }
+    if (invite.status !== TeamInviteStatus.pending) {
+      throw new BadRequestException('La invitación ya fue resuelta');
+    }
+
+    await this.prisma.teamInvite.update({
+      where: { id: invite.id },
+      data: { status: TeamInviteStatus.rejected },
+    });
+
+    await this.emitTeamInviteResolved(invite.teamId, {
+      id: invite.id,
+      teamId: invite.teamId,
+      teamName: invite.team.name,
+      accepted: false,
+      inviteeId: userId,
+    });
+    return { rejected: true, teamId: invite.teamId, teamName: invite.team.name };
+  }
+
+  async searchUsersByEmail(actorId: string, email: string) {
+    const q = email.trim().toLowerCase();
+    if (q.length < 3) return [];
+    const users = await this.prisma.user.findMany({
+      where: {
+        email: { contains: q, mode: 'insensitive' },
+        NOT: { id: actorId },
+      },
+      select: userPublicSelect,
+      take: 8,
+      orderBy: { email: 'asc' },
+    });
+    return users;
   }
 
   async listMembers(userId: string, teamId: string) {
@@ -218,20 +501,31 @@ export class TeamsService {
       }
     }
 
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { id: true, name: true },
+    });
+    if (!team) throw new NotFoundException('Team not found');
+
     await this.prisma.teamMember.delete({
       where: { teamId_userId: { teamId, userId: targetUserId } },
     });
 
-    const remaining = await this.prisma.teamMember.count({
-      where: { userId: targetUserId },
+    await this.prisma.teamInvite.updateMany({
+      where: {
+        teamId,
+        inviteeId: targetUserId,
+        status: TeamInviteStatus.pending,
+      },
+      data: { status: TeamInviteStatus.rejected },
     });
-    let accountDeleted = false;
-    if (remaining === 0) {
-      await this.prisma.user.delete({ where: { id: targetUserId } });
-      accountDeleted = true;
-    }
 
-    return { removed: true, accountDeleted };
+    this.events.emitToUser(targetUserId, 'team-member-removed', {
+      teamId: team.id,
+      teamName: team.name,
+    });
+
+    return { removed: true };
   }
 
   async join(userId: string, dto: JoinTeamDto) {
@@ -247,6 +541,24 @@ export class TeamsService {
     await this.prisma.teamJoinRequest.deleteMany({
       where: { teamId: team.id, userId },
     });
+    await this.prisma.teamInvite.updateMany({
+      where: {
+        teamId: team.id,
+        inviteeId: userId,
+        status: TeamInviteStatus.pending,
+      },
+      data: { status: TeamInviteStatus.accepted },
+    });
+
+    const facilitatorIds = await this.facilitatorUserIds(team.id);
+    this.events.emitToUsers(facilitatorIds, 'team-invite-resolved', {
+      id: '',
+      teamId: team.id,
+      teamName: team.name,
+      accepted: true,
+      inviteeId: userId,
+    });
+
     return this.getOne(userId, team.id);
   }
 
@@ -392,6 +704,20 @@ export class TeamsService {
       select: { userId: true },
     });
     return rows.map((row) => row.userId);
+  }
+
+  private async emitTeamInviteResolved(
+    teamId: string,
+    payload: {
+      id: string;
+      teamId: string;
+      teamName: string;
+      accepted: boolean;
+      inviteeId: string;
+    },
+  ) {
+    const facilitatorIds = await this.facilitatorUserIds(teamId);
+    this.events.emitToUsers(facilitatorIds, 'team-invite-resolved', payload);
   }
 
   private async emitJoinResolved(

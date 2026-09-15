@@ -1,0 +1,12 @@
+---
+description: No verificar en el browser; el usuario prueba la UI
+alwaysApply: true
+---
+
+# El usuario testa la UI
+
+No uses el browser ni herramientas de browser (snapshots, clicks, CDP, screenshots) para verificar cambios.
+
+Después de un cambio que corre en Docker, hacé el rebuild/restart y avisá la URL. El usuario recarga y prueba.
+
+No armes flujos E2E en el browser “por las dudas”. Si algo no se puede verificar sin UI, decilo en el mensaje y listo.

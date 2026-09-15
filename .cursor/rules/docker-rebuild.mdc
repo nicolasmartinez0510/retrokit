@@ -31,7 +31,7 @@ docker compose up -d --build web api
 
 Usá permisos de Docker (`all` si el sandbox lo bloquea). Esperá a que los contenedores queden `Started`/`Healthy`.
 
-Al terminar: recargar **http://localhost:${HOST_PORT}** (hard refresh si el navegador cachea el JS).
+Al terminar: avisá **http://localhost:${HOST_PORT}** para que el usuario recargue (hard refresh si el navegador cachea el JS). No verifiques vos en el browser.
 
 ## No aplica
 

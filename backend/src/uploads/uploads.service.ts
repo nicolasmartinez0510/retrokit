@@ -282,6 +282,33 @@ export class UploadsService implements OnModuleInit, OnModuleDestroy {
     return this.writeTemplateFile(templateId, `col-${columnId}`, file);
   }
 
+  async saveTeamLogo(teamId: string, file: Express.Multer.File): Promise<string> {
+    this.assertLogo(file);
+    const ext = EXT_BY_MIME[file.mimetype] || 'png';
+    const relative = path.join('teams', teamId, `logo.${ext}`);
+    const absolute = path.join(this.uploadDir, relative);
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    // Remove previous logo variants (png/jpg/webp/svg)
+    for (const oldExt of ['png', 'jpg', 'webp', 'svg']) {
+      try {
+        await fs.unlink(path.join(this.uploadDir, 'teams', teamId, `logo.${oldExt}`));
+      } catch {
+        /* ignore */
+      }
+    }
+    await fs.writeFile(absolute, file.buffer);
+    return this.toPublicUrl(relative);
+  }
+
+  async deleteTeamLogoDir(teamId: string) {
+    const dir = path.join(this.uploadDir, 'teams', teamId);
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+
   async deleteTemplateDir(templateId: string) {
     const dir = path.join(this.uploadDir, 'templates', templateId);
     try {
