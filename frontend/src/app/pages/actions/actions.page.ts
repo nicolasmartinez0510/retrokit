@@ -1,7 +1,8 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { canMutateAction, isTeamFacilitator } from '../../core/action-permissions';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { formatDueDate, toDateInputValue } from '../../core/dates';
@@ -9,12 +10,14 @@ import {
   ActionAssigneeOption,
   ActionItem,
   ActionLinkedCard,
+  ActionProgressWrite,
   ActionStatus,
   TeamDetail,
 } from '../../core/models';
 import { SocketService } from '../../core/socket.service';
 import { ActionItemModalComponent } from '../../shared/action-item-modal.component';
 import type { ActionItemSavePayload } from '../../shared/action-item-modal.component';
+import { ActionProgressModalComponent } from '../../shared/action-progress-modal.component';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
@@ -23,6 +26,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
     FormsModule,
     UserAvatarComponent,
     ActionItemModalComponent,
+    ActionProgressModalComponent,
     CdkDropListGroup,
     CdkDropList,
     CdkDrag,
@@ -87,8 +91,25 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
               >
                 <div class="item-head">
                   <strong>{{ item.title }}</strong>
-                  @if (canMutateAction(item)) {
-                    <div class="item-actions">
+                  <div class="item-actions">
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      title="Ver avances"
+                      aria-label="Ver avances de la acción"
+                      (click)="goToProgress(item, $event)"
+                      (pointerdown)="$event.stopPropagation()"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z"
+                        />
+                      </svg>
+                      @if (item.progressCount) {
+                        <span class="icon-badge">{{ item.progressCount }}</span>
+                      }
+                    </button>
+                    @if (canMutateAction(item)) {
                       <button
                         type="button"
                         class="icon-btn"
@@ -117,8 +138,8 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                           />
                         </svg>
                       </button>
-                    </div>
-                  }
+                    }
+                  </div>
                 </div>
                 @if (item.description) {
                   <p class="item-desc">{{ item.description }}</p>
@@ -164,6 +185,18 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         [saving]="saving()"
         (save)="saveModal($event)"
         (discard)="closeModal()"
+      />
+    }
+
+    @if (progressTarget(); as target) {
+      <app-action-progress-modal
+        [heading]="progressHeading(target)"
+        [dateLabel]="today"
+        [actionTitle]="target.title"
+        [saving]="progressSaving()"
+        [error]="progressError()"
+        (save)="saveProgress($event)"
+        (discard)="closeProgress()"
       />
     }
   `,
@@ -249,6 +282,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
     }
     .icon-btn {
       appearance: none;
+      position: relative;
       flex-shrink: 0;
       width: 1.85rem;
       height: 1.85rem;
@@ -279,6 +313,20 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         &:hover { background: var(--color-danger-soft); }
       }
     }
+    .icon-badge {
+      position: absolute;
+      top: -0.15rem;
+      right: -0.15rem;
+      min-width: 1rem;
+      height: 1rem;
+      padding: 0 0.2rem;
+      border-radius: 999px;
+      background: var(--color-brand);
+      color: var(--color-on-brand);
+      font-size: 0.62rem;
+      font-weight: 700;
+      line-height: 1rem;
+    }
     .empty { color: var(--color-text-muted); font-size: 0.85rem; }
     .cdk-drag-preview {
       box-sizing: border-box;
@@ -306,6 +354,7 @@ export class ActionsPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly sockets = inject(SocketService);
 
   teamId = '';
@@ -315,6 +364,10 @@ export class ActionsPage implements OnInit, OnDestroy {
   error = signal('');
   showModal = signal(false);
   saving = signal(false);
+  progressTarget = signal<ActionItem | null>(null);
+  progressSaving = signal(false);
+  progressError = signal('');
+  readonly today = formatDueDate(new Date().toISOString());
   editingId: string | null = null;
   editTitle = '';
   editDescription = '';
@@ -351,6 +404,7 @@ export class ActionsPage implements OnInit, OnDestroy {
     if (!id || (teamId && teamId !== this.teamId)) return;
     this.items.update((list) => list.filter((entry) => entry.id !== id));
     if (this.editingId === id) this.closeModal();
+    if (this.progressTarget()?.id === id) this.closeProgress();
   };
 
   columns: { key: ActionStatus; label: string }[] = [
@@ -411,21 +465,11 @@ export class ActionsPage implements OnInit, OnDestroy {
   }
 
   isFacilitator() {
-    if (this.auth.user()?.isAdmin) return true;
-    const userId = this.auth.user()?.id;
-    if (!userId) return false;
-    return (
-      this.team()?.members.some(
-        (m) => m.user.id === userId && m.role === 'facilitator',
-      ) ?? false
-    );
+    return isTeamFacilitator(this.auth.user(), this.team());
   }
 
   canMutateAction(item: ActionItem) {
-    if (this.isFacilitator()) return true;
-    const userId = this.auth.user()?.id;
-    if (!userId) return false;
-    return item.createdById === userId || item.ownerId === userId;
+    return canMutateAction(item, this.auth.user(), this.team());
   }
 
   dueLabel(iso?: string | null) {
@@ -564,14 +608,66 @@ export class ActionsPage implements OnInit, OnDestroy {
 
   move(item: ActionItem, status: ActionStatus) {
     this.error.set('');
+    const previousStatus = item.status;
     this.items.update((list) =>
       list.map((entry) => (entry.id === item.id ? { ...entry, status } : entry)),
     );
     this.api.updateAction(this.teamId, item.id, { status }).subscribe({
-      next: () => this.reload(),
+      next: () => {
+        this.reload();
+        if (previousStatus === 'pending' && status !== 'pending') {
+          this.openProgress(item);
+        }
+      },
       error: (e) => {
         this.error.set(e?.error?.message || 'No se pudo actualizar la acción');
         this.reload();
+      },
+    });
+  }
+
+  goToProgress(item: ActionItem, event: Event) {
+    event.stopPropagation();
+    this.didDrag = false;
+    this.router.navigate(['/teams', this.teamId, 'actions', 'avances'], {
+      queryParams: {
+        action: item.id,
+        retro: item.retroId ?? '__none__',
+      },
+    });
+  }
+
+  progressHeading(item: ActionItem) {
+    return `Actualización de avances N°${(item.progressCount ?? 0) + 1}`;
+  }
+
+  openProgress(item: ActionItem) {
+    this.progressError.set('');
+    this.progressSaving.set(false);
+    this.progressTarget.set(item);
+  }
+
+  closeProgress() {
+    this.progressTarget.set(null);
+    this.progressSaving.set(false);
+    this.progressError.set('');
+  }
+
+  saveProgress(payload: ActionProgressWrite) {
+    const target = this.progressTarget();
+    if (!target) return;
+    this.progressSaving.set(true);
+    this.progressError.set('');
+    this.api.createActionProgress(target.id, payload).subscribe({
+      next: () => {
+        this.closeProgress();
+        this.reload();
+      },
+      error: (e) => {
+        this.progressSaving.set(false);
+        this.progressError.set(
+          e?.error?.message || 'No se pudo guardar el avance',
+        );
       },
     });
   }

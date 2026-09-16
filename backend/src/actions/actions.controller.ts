@@ -11,13 +11,22 @@ import {
 import { CurrentUser } from '../auth/decorators';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt.strategy';
+import { ActionProgressService } from './action-progress.service';
 import { ActionsService } from './actions.service';
-import { CreateTeamActionDto, UpdateActionDto } from './dto/action.dto';
+import {
+  CreateActionProgressDto,
+  CreateTeamActionDto,
+  UpdateActionDto,
+  UpdateActionProgressDto,
+} from './dto/action.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class ActionsController {
-  constructor(private readonly actionsService: ActionsService) {}
+  constructor(
+    private readonly actionsService: ActionsService,
+    private readonly progressService: ActionProgressService,
+  ) {}
 
   @Get('teams/:teamId/actions')
   list(@CurrentUser() user: JwtPayload, @Param('teamId') teamId: string) {
@@ -63,5 +72,39 @@ export class ActionsController {
     @Param('actionId') actionId: string,
   ) {
     return this.actionsService.remove(user.sub, actionId);
+  }
+
+  @Get('actions/:actionId/progress')
+  listProgress(
+    @CurrentUser() user: JwtPayload,
+    @Param('actionId') actionId: string,
+  ) {
+    return this.progressService.listForAction(user.sub, actionId);
+  }
+
+  @Post('actions/:actionId/progress')
+  createProgress(
+    @CurrentUser() user: JwtPayload,
+    @Param('actionId') actionId: string,
+    @Body() dto: CreateActionProgressDto,
+  ) {
+    return this.progressService.create(user.sub, actionId, dto);
+  }
+
+  @Patch('action-progress/:updateId')
+  updateProgress(
+    @CurrentUser() user: JwtPayload,
+    @Param('updateId') updateId: string,
+    @Body() dto: UpdateActionProgressDto,
+  ) {
+    return this.progressService.update(user.sub, updateId, dto);
+  }
+
+  @Delete('action-progress/:updateId')
+  removeProgress(
+    @CurrentUser() user: JwtPayload,
+    @Param('updateId') updateId: string,
+  ) {
+    return this.progressService.remove(user.sub, updateId);
   }
 }

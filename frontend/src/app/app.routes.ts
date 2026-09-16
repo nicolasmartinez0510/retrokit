@@ -75,6 +75,14 @@ export const routes: Routes = [
       import('./pages/team/team.page').then((m) => m.TeamPage),
   },
   {
+    path: 'teams/:id/actions/avances',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./pages/actions/action-progress.page').then(
+        (m) => m.ActionProgressPage,
+      ),
+  },
+  {
     path: 'teams/:id/actions',
     canActivate: [authGuard],
     loadComponent: () =>

@@ -20,6 +20,8 @@ import { AvatarMenuComponent } from './avatar-menu.component';
 import { BrandLogo } from './brand-logo.component';
 import { TeamCreateJoinModalComponent } from './team-create-join-modal.component';
 
+const ACTIONS_SECTION = /^\/teams\/[^/]+\/actions(\/|\?|$)/;
+
 @Component({
   selector: 'app-nav-rail',
   imports: [RouterLink, RouterLinkActive, BrandLogo, AvatarMenuComponent, TeamCreateJoinModalComponent],
@@ -212,28 +214,103 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
             }
           </a>
 
-          <a
-            [routerLink]="['/teams', teamId, 'actions']"
-            routerLinkActive="active"
-            [routerLinkActiveOptions]="{
-              paths: 'exact',
-              queryParams: 'ignored',
-              fragment: 'ignored',
-              matrixParams: 'ignored'
-            }"
-            class="nav-item"
-            aria-label="Tablero de acciones"
-            title="Tablero de acciones"
-          >
-            <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z"
-              />
-            </svg>
-            @if (layout.expanded()) {
+          @if (layout.expanded()) {
+            <button
+              type="button"
+              class="nav-item group-toggle"
+              [class.active]="onActionsSection()"
+              [attr.aria-expanded]="actionsOpen()"
+              aria-label="Acciones"
+              (click)="toggleActions()"
+            >
+              <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z"
+                />
+              </svg>
               <span>Acciones</span>
+              <svg
+                class="chevron group-chevron"
+                [class.open]="actionsOpen()"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
+
+            @if (actionsOpen()) {
+              <div class="nav-children">
+                <a
+                  [routerLink]="['/teams', teamId, 'actions']"
+                  routerLinkActive="active"
+                  [routerLinkActiveOptions]="{
+                    paths: 'exact',
+                    queryParams: 'ignored',
+                    fragment: 'ignored',
+                    matrixParams: 'ignored'
+                  }"
+                  class="nav-item nav-child"
+                  title="Tablero de acciones"
+                >
+                  <span>Tablero</span>
+                </a>
+                <a
+                  [routerLink]="['/teams', teamId, 'actions', 'avances']"
+                  routerLinkActive="active"
+                  [routerLinkActiveOptions]="{
+                    paths: 'exact',
+                    queryParams: 'ignored',
+                    fragment: 'ignored',
+                    matrixParams: 'ignored'
+                  }"
+                  class="nav-item nav-child"
+                  title="Avances de accionables"
+                >
+                  <span>Avances</span>
+                </a>
+              </div>
             }
-          </a>
+          } @else {
+            <a
+              [routerLink]="['/teams', teamId, 'actions']"
+              routerLinkActive="active"
+              [routerLinkActiveOptions]="{
+                paths: 'exact',
+                queryParams: 'ignored',
+                fragment: 'ignored',
+                matrixParams: 'ignored'
+              }"
+              class="nav-item"
+              aria-label="Tablero de acciones"
+              title="Tablero de acciones"
+            >
+              <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z"
+                />
+              </svg>
+            </a>
+            <a
+              [routerLink]="['/teams', teamId, 'actions', 'avances']"
+              routerLinkActive="active"
+              [routerLinkActiveOptions]="{
+                paths: 'exact',
+                queryParams: 'ignored',
+                fragment: 'ignored',
+                matrixParams: 'ignored'
+              }"
+              class="nav-item"
+              aria-label="Avances de accionables"
+              title="Avances de accionables"
+            >
+              <svg class="nav-icon outline" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z"
+                />
+              </svg>
+            </a>
+          }
 
           <a
             [routerLink]="['/teams', teamId, 'members']"
@@ -825,6 +902,51 @@ import { TeamCreateJoinModalComponent } from './team-create-join-modal.component
       cursor: not-allowed;
       pointer-events: none;
     }
+    .group-toggle {
+      text-align: left;
+    }
+    .group-chevron {
+      margin-left: auto;
+      width: 0.85rem;
+      height: 0.85rem;
+      color: inherit;
+      transition: transform 0.16s ease;
+    }
+    .group-chevron.open {
+      transform: rotate(180deg);
+    }
+    .nav-children {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      margin: 0.1rem 0 0.15rem 1.15rem;
+      padding-left: 0.6rem;
+      border-left: 1px solid var(--color-border);
+      animation: nav-children-in 0.16s ease-out;
+    }
+    @keyframes nav-children-in {
+      from {
+        opacity: 0;
+        transform: translateY(-2px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .nav-child {
+      min-height: 2rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .nav-children {
+        animation: none;
+      }
+      .group-chevron {
+        transition: none;
+      }
+    }
     .nav-icon {
       width: 1.25rem;
       height: 1.25rem;
@@ -906,6 +1028,8 @@ export class AppNavRailComponent {
   readonly teamMenuOpen = signal(false);
   readonly showCreate = signal(false);
   private readonly url = signal(this.router.url);
+  readonly actionsOpen = signal(ACTIONS_SECTION.test(this.router.url));
+  readonly onActionsSection = computed(() => ACTIONS_SECTION.test(this.url()));
 
   readonly teams = this.activeTeams.teams;
   readonly activeTeamId = this.activeTeams.activeTeamId;
@@ -919,7 +1043,16 @@ export class AppNavRailComponent {
   constructor() {
     this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
-      .subscribe((e) => this.url.set(e.urlAfterRedirects));
+      .subscribe((e) => {
+        this.url.set(e.urlAfterRedirects);
+        if (ACTIONS_SECTION.test(e.urlAfterRedirects)) {
+          this.actionsOpen.set(true);
+        }
+      });
+  }
+
+  toggleActions() {
+    this.actionsOpen.update((open) => !open);
   }
 
   @HostListener('document:click', ['$event'])

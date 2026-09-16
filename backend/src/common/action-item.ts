@@ -8,6 +8,7 @@ import {
 } from './avatars';
 
 export const actionItemInclude = {
+  _count: { select: { progressUpdates: true } },
   owner: { select: userOwnerSelect },
   retro: { select: { id: true, title: true, createdAt: true } },
   card: {
@@ -69,6 +70,7 @@ export function serializeActionItem(action: ActionItemWithOrigin) {
     groupId: action.groupId,
     createdAt: action.createdAt,
     updatedAt: action.updatedAt,
+    progressCount: action._count.progressUpdates,
     owner: action.owner
       ? {
           ...action.owner,

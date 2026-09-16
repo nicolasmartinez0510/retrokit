@@ -4,6 +4,8 @@ import { environment } from '../../environments/environment';
 import {
   ActionItem,
   ActionItemWrite,
+  ActionProgressUpdate,
+  ActionProgressWrite,
   CreateRetroPayload,
   CreateTemplatePayload,
   JoinRetroResponse,
@@ -421,6 +423,33 @@ export class ApiService {
   deleteAction(actionId: string) {
     return this.http.delete<{ deleted: boolean }>(
       `${this.base}/actions/${actionId}`,
+    );
+  }
+
+  // Action progress updates
+  listActionProgress(actionId: string) {
+    return this.http.get<ActionProgressUpdate[]>(
+      `${this.base}/actions/${actionId}/progress`,
+    );
+  }
+
+  createActionProgress(actionId: string, body: ActionProgressWrite) {
+    return this.http.post<ActionProgressUpdate>(
+      `${this.base}/actions/${actionId}/progress`,
+      body,
+    );
+  }
+
+  updateActionProgress(updateId: string, body: ActionProgressWrite) {
+    return this.http.patch<ActionProgressUpdate>(
+      `${this.base}/action-progress/${updateId}`,
+      body,
+    );
+  }
+
+  deleteActionProgress(updateId: string) {
+    return this.http.delete<{ deleted: boolean }>(
+      `${this.base}/action-progress/${updateId}`,
     );
   }
 }

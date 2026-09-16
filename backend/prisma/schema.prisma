@@ -28,22 +28,31 @@ enum ActionStatus {
   unmet
 }
 
+enum ActionEntryMode {
+  retrospectiva
+  weekly
+  planning
+  refinamiento
+  otro
+}
+
 model User {
-  id             String            @id @default(cuid())
-  email          String            @unique
-  passwordHash   String
-  name           String
-  avatarId       String?
-  isAdmin        Boolean           @default(false)
-  createdAt      DateTime          @default(now())
-  memberships    TeamMember[]
-  participants   Participant[]
-  ownedActions     ActionItem[]      @relation("ActionOwner")
-  createdActions   ActionItem[]      @relation("ActionCreator")
-  createdTemplates Template[]        @relation("TemplateCreator")
+  id               String                 @id @default(cuid())
+  email            String                 @unique
+  passwordHash     String
+  name             String
+  avatarId         String?
+  isAdmin          Boolean                @default(false)
+  createdAt        DateTime               @default(now())
+  memberships      TeamMember[]
+  participants     Participant[]
+  ownedActions     ActionItem[]           @relation("ActionOwner")
+  createdActions   ActionItem[]           @relation("ActionCreator")
+  createdTemplates Template[]             @relation("TemplateCreator")
+  progressUpdates  ActionProgressUpdate[] @relation("ActionProgressAuthor")
   joinRequests     TeamJoinRequest[]
-  invitesSent      TeamInvite[]      @relation("TeamInvitesSent")
-  invitesReceived  TeamInvite[]      @relation("TeamInvitesReceived")
+  invitesSent      TeamInvite[]           @relation("TeamInvitesSent")
+  invitesReceived  TeamInvite[]           @relation("TeamInvitesReceived")
 }
 
 model Team {
@@ -239,25 +248,45 @@ model Vote {
 }
 
 model ActionItem {
-  id          String         @id @default(cuid())
-  teamId      String
-  retroId     String?
-  title       String
-  description String?
-  status      ActionStatus   @default(pending)
-  ownerId     String?
-  createdById String?
-  dueDate     DateTime?
-  cardId      String?
-  groupId     String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  retro       Retrospective? @relation(fields: [retroId], references: [id], onDelete: SetNull)
-  owner       User?          @relation("ActionOwner", fields: [ownerId], references: [id])
-  createdBy   User?          @relation("ActionCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  card        Card?          @relation(fields: [cardId], references: [id], onDelete: SetNull)
-  group       CardGroup?     @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  id              String                 @id @default(cuid())
+  teamId          String
+  retroId         String?
+  title           String
+  description     String?
+  status          ActionStatus           @default(pending)
+  ownerId         String?
+  createdById     String?
+  dueDate         DateTime?
+  cardId          String?
+  groupId         String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  team            Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  retro           Retrospective?         @relation(fields: [retroId], references: [id], onDelete: SetNull)
+  owner           User?                  @relation("ActionOwner", fields: [ownerId], references: [id])
+  createdBy       User?                  @relation("ActionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  card            Card?                  @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  group           CardGroup?             @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  progressUpdates ActionProgressUpdate[]
+}
+
+model ActionProgressUpdate {
+  id              String          @id @default(cuid())
+  actionId        String
+  authorId        String?
+  sequence        Int
+  title           String
+  entryMode       ActionEntryMode
+  entryModeCustom String?
+  progress        String?
+  pending         String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  action          ActionItem      @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  author          User?           @relation("ActionProgressAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([actionId, sequence])
+  @@index([actionId, createdAt])
 }
 
 model RotiResponse {

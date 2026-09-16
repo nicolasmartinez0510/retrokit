@@ -7,6 +7,12 @@ export type RetroStatus =
   | 'roti'
   | 'closed';
 export type ActionStatus = 'pending' | 'doing' | 'done' | 'unmet';
+export type ActionEntryMode =
+  | 'retrospectiva'
+  | 'weekly'
+  | 'planning'
+  | 'refinamiento'
+  | 'otro';
 
 export interface User {
   id: string;
@@ -301,6 +307,7 @@ export interface ActionItem {
   groupId?: string | null;
   createdAt: string;
   updatedAt?: string;
+  progressCount?: number;
   owner?: { id: string; name: string; avatarId?: string | null } | null;
   retro?: { id: string; title: string; createdAt?: string } | null;
   card?: ActionLinkedCard | null;
@@ -309,6 +316,28 @@ export interface ActionItem {
     title?: string | null;
     cards: ActionLinkedCard[];
   } | null;
+}
+
+export interface ActionProgressWrite {
+  entryMode: ActionEntryMode;
+  entryModeCustom?: string;
+  progress?: string;
+  pending?: string;
+}
+
+export interface ActionProgressUpdate {
+  id: string;
+  actionId: string;
+  sequence: number;
+  title: string;
+  entryMode: ActionEntryMode;
+  entryModeCustom?: string | null;
+  progress?: string | null;
+  pending?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  authorId?: string | null;
+  author?: { id: string; name: string; avatarId?: string | null } | null;
 }
 
 export interface RetroBoard {
@@ -398,4 +427,12 @@ export const ACTION_STATUS_LABELS: Record<ActionStatus, string> = {
   doing: 'En curso',
   done: 'Cumplido',
   unmet: 'No cumplido',
+};
+
+export const ACTION_ENTRY_MODE_LABELS: Record<ActionEntryMode, string> = {
+  retrospectiva: 'Retrospectiva',
+  weekly: 'Weekly',
+  planning: 'Planning',
+  refinamiento: 'Refinamiento',
+  otro: 'Otro',
 };
