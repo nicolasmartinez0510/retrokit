@@ -25,9 +25,9 @@ const MAX_FAVORITE_TEAMS = 3;
 const retroSummarySelect = {
   id: true,
   title: true,
-  status: true,
   createdAt: true,
   closedAt: true,
+  currentPhase: { select: { id: true, name: true, kind: true } },
   template: { select: { name: true } },
   _count: { select: { cards: true } },
   participants: {
@@ -885,6 +885,8 @@ export class TeamsService {
   private withMappedRetros<
     T extends {
       retrospectives: Array<{
+        closedAt: Date | null;
+        currentPhase: { id: string; name: string; kind: string } | null;
         participants: Array<{
           id: string;
           guestName: string | null;
@@ -899,6 +901,9 @@ export class TeamsService {
       ...team,
       retrospectives: team.retrospectives.map(({ participants, ...retro }) => ({
         ...retro,
+        closed: !!retro.closedAt,
+        currentPhaseName: retro.currentPhase?.name ?? null,
+        currentPhaseKind: retro.currentPhase?.kind ?? null,
         participants: participants.map((p) => ({
           id: p.id,
           name:

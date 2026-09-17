@@ -9,7 +9,7 @@ import { daysUntilDue, dueUrgencyLabel, formatDueDate } from '../../core/dates';
 import {
   ACTION_STATUS_LABELS,
   ActionItem,
-  PHASE_LABELS,
+  RetroSummary,
 } from '../../core/models';
 import { TeamCreateJoinModalComponent } from '../../shared/team-create-join-modal.component';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
@@ -100,7 +100,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                       <strong>{{ r.title }}</strong>
                       <span class="muted">{{ r.createdAtLabel }}</span>
                     </div>
-                    <span class="badge">{{ phaseLabel(r.status) }}</span>
+                    <span class="badge">{{ r.phaseLabel }}</span>
                   </a>
                 } @empty {
                   <div class="empty-state card compact">
@@ -293,7 +293,7 @@ export class DashboardPage implements OnInit {
     {
       id: string;
       title: string;
-      status: string;
+      phaseLabel: string;
       createdAt: string;
       createdAtLabel: string;
     }[]
@@ -354,8 +354,9 @@ export class DashboardPage implements OnInit {
     this.activeTeams.load();
   }
 
-  phaseLabel(status: string): string {
-    return PHASE_LABELS[status as keyof typeof PHASE_LABELS] || status;
+  retroPhaseLabel(r: RetroSummary) {
+    if (r.closed || r.closedAt) return 'Cerrada';
+    return r.currentPhaseName || r.currentPhase?.name || '—';
   }
 
   statusLabel(status: ActionItem['status']) {
@@ -411,7 +412,7 @@ export class DashboardPage implements OnInit {
           .map((r) => ({
             id: r.id,
             title: r.title,
-            status: r.status,
+            phaseLabel: this.retroPhaseLabel(r),
             createdAt: r.createdAt,
             createdAtLabel: formatCreatedAt(r.createdAt),
           }));

@@ -3,7 +3,18 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { formatDueDate } from '../../core/dates';
-import { ACTION_STATUS_LABELS, ActionItem, RetroReport } from '../../core/models';
+import {
+  ACTION_STATUS_LABELS,
+  ActionItem,
+  RetroReport,
+  SemaforoItem,
+  SemaforoValue,
+} from '../../core/models';
+import {
+  normalizeSemaforoEmojis,
+  SEMAFORO_VALUE_LABELS,
+  type SemaforoValueKey,
+} from '../../core/phase-rules';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 @Component({
@@ -15,7 +26,11 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
         <div class="page-header no-print">
           <div>
             <h1>Reporte: {{ r.title }}</h1>
-            <p class="subtitle">{{ r.team?.name }}</p>
+            <p class="subtitle">
+              {{ r.team?.name }}
+              <span class="sep">·</span>
+              {{ retroPhaseLabel(r) }}
+            </p>
           </div>
           <div class="actions">
             <button type="button" class="btn-primary" (click)="print()">Imprimir / PDF</button>
@@ -56,6 +71,40 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
             </ul>
           }
         </section>
+
+        @if (r.semaforoItems?.length) {
+          <section class="card block">
+            <h2>Semáforo</h2>
+            <table class="semaforo-table">
+              <thead>
+                <tr>
+                  <th>Ítem</th>
+                  @for (key of semaforoKeys; track key) {
+                    <th>
+                      {{ semaforoEmojis(r)[key] }}
+                      {{ semaforoLabels[key] }}
+                    </th>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                @for (item of r.semaforoItems; track item.id) {
+                  <tr>
+                    <td>
+                      <strong>{{ item.title }}</strong>
+                      @if (item.description) {
+                        <div class="item-desc">{{ item.description }}</div>
+                      }
+                    </td>
+                    <td>{{ semaforoCount(item, 'red') }}</td>
+                    <td>{{ semaforoCount(item, 'yellow') }}</td>
+                    <td>{{ semaforoCount(item, 'green') }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </section>
+        }
 
         <section class="card block">
           <h2>Acciones</h2>
@@ -100,6 +149,41 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       ul { margin: 0; padding-left: 1.1rem; }
       li { margin-bottom: 0.35rem; white-space: pre-wrap; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
     }
+    .subtitle .sep {
+      opacity: 0.55;
+      margin: 0 0.2rem;
+    }
+    .semaforo-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      th, td {
+        text-align: left;
+        padding: 0.45rem 0.55rem;
+        border-bottom: 1px solid var(--color-border);
+        vertical-align: top;
+      }
+      th {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--color-text-muted);
+      }
+      th:nth-child(2),
+      th:nth-child(3),
+      th:nth-child(4),
+      td:nth-child(2),
+      td:nth-child(3),
+      td:nth-child(4) {
+        text-align: center;
+        width: 4.5rem;
+      }
+    }
+    .item-desc {
+      margin-top: 0.15rem;
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+    }
     .report-thumb {
       display: block;
       max-width: 160px;
@@ -127,10 +211,25 @@ export class ReportPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   report = signal<RetroReport | null>(null);
+  readonly semaforoKeys: SemaforoValueKey[] = ['red', 'yellow', 'green'];
+  readonly semaforoLabels = SEMAFORO_VALUE_LABELS;
 
   ngOnInit() {
     const id = this.route.snapshot.paramMap.get('id')!;
     this.api.getReport(id).subscribe((r) => this.report.set(r));
+  }
+
+  semaforoEmojis(r: RetroReport): Record<SemaforoValueKey, string> {
+    const phase =
+      r.phases?.find((p) => p.kind === 'semaforo') ??
+      r.phases?.find((p) => p.kind === 'semaforo_review');
+    const [red, yellow, green] = normalizeSemaforoEmojis(phase?.semaforoEmojis);
+    return { red, yellow, green };
+  }
+
+  retroPhaseLabel(r: RetroReport) {
+    if (r.closed || r.closedAt) return 'Cerrada';
+    return r.currentPhase?.name || '—';
   }
 
   cardsIn(columnId: string) {
@@ -143,6 +242,19 @@ export class ReportPage implements OnInit {
     return r.votes
       .filter((v) => (groupId ? v.groupId === groupId : v.cardId === cardId))
       .reduce((s, v) => s + v.count, 0);
+  }
+
+  semaforoCount(item: SemaforoItem, value: SemaforoValue) {
+    if (item.summary) return item.summary[value];
+    if (item.votes?.length) {
+      return item.votes.filter((v) => v.value === value).length;
+    }
+    const report = this.report();
+    return (
+      report?.semaforoVotes?.filter(
+        (v) => v.itemId === item.id && v.value === value,
+      ).length ?? 0
+    );
   }
 
   statusLabel(status: keyof typeof ACTION_STATUS_LABELS) {

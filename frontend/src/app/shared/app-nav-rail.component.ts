@@ -21,6 +21,7 @@ import { BrandLogo } from './brand-logo.component';
 import { TeamCreateJoinModalComponent } from './team-create-join-modal.component';
 
 const ACTIONS_SECTION = /^\/teams\/[^/]+\/actions(\/|\?|$)/;
+const TEMPLATES_SECTION = /^\/(templates|phases)(\/|\?|$)/;
 
 @Component({
   selector: 'app-nav-rail',
@@ -406,22 +407,68 @@ const ACTIONS_SECTION = /^\/teams\/[^/]+\/actions(\/|\?|$)/;
             }
           </a>
 
-          <a
-            routerLink="/templates"
-            routerLinkActive="active"
-            class="nav-item"
-            aria-label="Plantillas"
-            title="Plantillas"
-          >
-            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M5.566 4.657A4.505 4.505 0 0 1 6.75 4.5h10.5c.41 0 .806.055 1.183.157A3 3 0 0 0 15.75 3h-7.5a3 3 0 0 0-2.684 1.657ZM2.25 12a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3v-6ZM5.25 7.5c-.61 0-1.169.11-1.67.305a3 3 0 0 1 1.67-1.305h13.5c.61 0 1.169.11 1.67.305a3 3 0 0 0-1.67-1.305H5.25Z"
-              />
-            </svg>
-            @if (layout.expanded()) {
-              <span>Plantillas</span>
-            }
-          </a>
+          @if (layout.expanded()) {
+            <div class="nav-group">
+              <button
+                type="button"
+                class="nav-item group-toggle"
+                [class.active]="onTemplatesSection()"
+                [attr.aria-expanded]="templatesOpen()"
+                aria-label="Plantillas"
+                (click)="toggleTemplates()"
+              >
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M5.566 4.657A4.505 4.505 0 0 1 6.75 4.5h10.5c.41 0 .806.055 1.183.157A3 3 0 0 0 15.75 3h-7.5a3 3 0 0 0-2.684 1.657ZM2.25 12a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3v-6ZM5.25 7.5c-.61 0-1.169.11-1.67.305a3 3 0 0 1 1.67-1.305h13.5c.61 0 1.169.11 1.67.305a3 3 0 0 0-1.67-1.305H5.25Z"
+                  />
+                </svg>
+                <span>Plantillas</span>
+                <svg
+                  class="chevron group-chevron"
+                  [class.open]="templatesOpen()"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+
+              @if (templatesOpen()) {
+                <div class="nav-children">
+                  <a
+                    routerLink="/templates"
+                    routerLinkActive="active"
+                    class="nav-item nav-child nav-subitem"
+                    title="Listado de plantillas"
+                  >
+                    <span>Listado</span>
+                  </a>
+                  <a
+                    routerLink="/phases"
+                    routerLinkActive="active"
+                    class="nav-item nav-child nav-subitem"
+                    title="Fases"
+                  >
+                    <span>Fases</span>
+                  </a>
+                </div>
+              }
+            </div>
+          } @else {
+            <a
+              routerLink="/templates"
+              class="nav-item"
+              [class.active]="onTemplatesSection()"
+              aria-label="Plantillas"
+              title="Plantillas y fases"
+            >
+              <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M5.566 4.657A4.505 4.505 0 0 1 6.75 4.5h10.5c.41 0 .806.055 1.183.157A3 3 0 0 0 15.75 3h-7.5a3 3 0 0 0-2.684 1.657ZM2.25 12a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3v-6ZM5.25 7.5c-.61 0-1.169.11-1.67.305a3 3 0 0 1 1.67-1.305h13.5c.61 0 1.169.11 1.67.305a3 3 0 0 0-1.67-1.305H5.25Z"
+                />
+              </svg>
+            </a>
+          }
 
           @if (auth.user()?.isAdmin) {
             <a
@@ -939,6 +986,14 @@ const ACTIONS_SECTION = /^\/teams\/[^/]+\/actions(\/|\?|$)/;
       font-size: 0.875rem;
       font-weight: 600;
     }
+    .nav-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+    .nav-subitem {
+      padding-left: 0.55rem;
+    }
     @media (prefers-reduced-motion: reduce) {
       .nav-children {
         animation: none;
@@ -1030,6 +1085,10 @@ export class AppNavRailComponent {
   private readonly url = signal(this.router.url);
   readonly actionsOpen = signal(ACTIONS_SECTION.test(this.router.url));
   readonly onActionsSection = computed(() => ACTIONS_SECTION.test(this.url()));
+  readonly templatesOpen = signal(TEMPLATES_SECTION.test(this.router.url));
+  readonly onTemplatesSection = computed(() =>
+    TEMPLATES_SECTION.test(this.url()),
+  );
 
   readonly teams = this.activeTeams.teams;
   readonly activeTeamId = this.activeTeams.activeTeamId;
@@ -1048,11 +1107,18 @@ export class AppNavRailComponent {
         if (ACTIONS_SECTION.test(e.urlAfterRedirects)) {
           this.actionsOpen.set(true);
         }
+        if (TEMPLATES_SECTION.test(e.urlAfterRedirects)) {
+          this.templatesOpen.set(true);
+        }
       });
   }
 
   toggleActions() {
     this.actionsOpen.update((open) => !open);
+  }
+
+  toggleTemplates() {
+    this.templatesOpen.update((open) => !open);
   }
 
   @HostListener('document:click', ['$event'])

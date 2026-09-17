@@ -175,7 +175,7 @@
           } @else if (timerLeft() !== null || r.timerPausedRemaining != null) {
             <span class="timer">{{ formatTime(timerLeft() ?? r.timerPausedRemaining!) }}</span>
           }
-        } @else if (r.status !== 'closed') {
+        } @else if (!isClosed()) {
           <button
             type="button"
             class="btn-primary btn-sm"
@@ -185,7 +185,7 @@
             {{ joining() ? 'Uniéndote…' : 'Unirme a la retro' }}
           </button>
         }
-        @if (isFacilitator() && r.status === 'actions') {
+        @if (isFacilitator() && allowPresentation()) {
           <label
             class="present-switch"
             [class.on]="presentArmed()"
@@ -204,21 +204,17 @@
       </div>
     </header>
 
-    <nav class="phases">
-      @for (p of phases; track p.key) {
-        <button
-          type="button"
-          class="phase"
-          [class.active]="r.status === p.key"
-          [class.done]="isPhaseDone(p.key)"
-          [class.clickable]="isFacilitator()"
-          [disabled]="!isFacilitator() || r.status === p.key"
-          (click)="goToPhase(p.key)"
-        >
-          {{ p.label }}
-        </button>
-      }
-    </nav>
+    <app-phase-pills
+      [phases]="phasePillItems()"
+      [activeId]="isClosed() ? null : (r.currentPhaseId ?? currentPhase()?.id ?? null)"
+      [doneIds]="donePhaseIds()"
+      [clickable]="isFacilitator() && !isClosed()"
+      (pick)="goToPhase($event)"
+    />
+
+    @if (currentPhase()?.instructions; as instructions) {
+      <p class="phase-instructions">{{ instructions }}</p>
+    }
 
     @if (error()) {
       <p class="form-error banner-error">{{ error() }}</p>
@@ -342,26 +338,16 @@
       </div>
     }
 
-    @if (r.status === 'comments' || r.status === 'grouping' || r.status === 'voting' || r.status === 'actions') {
+    @if (isBoard() || isActionPlan()) {
       <div class="meta-bar">
-        @if (r.status === 'comments' || r.status === 'grouping') {
+        @if (canCreateCards()) {
           @if (isParticipant()) {
             <span class="meta-stat">
               Tus comentarios: {{ r.me?.myCommentCount || 0 }}
-              @if (r.maxCommentsPerParticipant != null) {
-                / {{ r.maxCommentsPerParticipant }}
+              @if (effectiveMaxCards() != null) {
+                / {{ effectiveMaxCards() }}
               }
             </span>
-            <label class="ready-toggle" [class.locked]="readyLocked()">
-              <input
-                type="checkbox"
-                [checked]="!!r.me?.commentsReady"
-                [disabled]="readyLocked()"
-                (change)="toggleCommentsReady($any($event.target).checked)"
-                name="commentsReady"
-              />
-              Estoy listo
-            </label>
           }
           @if (r.commentProgress; as progress) {
             <div class="comment-progress" [class.all-done]="progress.allDone">
@@ -391,21 +377,11 @@
             </div>
           }
         }
-        @if (r.status === 'voting') {
+        @if (isVotingPhase()) {
           @if (isParticipant()) {
             <span class="meta-stat">
               Tus votos: {{ usedVoteTotal() }} / {{ r.votesPerParticipant }}
             </span>
-            <label class="ready-toggle" [class.locked]="readyLocked()">
-              <input
-                type="checkbox"
-                [checked]="!!r.me?.votesReady"
-                [disabled]="readyLocked()"
-                (change)="toggleVotesReady($any($event.target).checked)"
-                name="votesReady"
-              />
-              Estoy listo
-            </label>
           }
           @if (r.voteProgress; as progress) {
             <div class="comment-progress" [class.all-done]="progress.allDone">
@@ -436,7 +412,19 @@
             </div>
           }
         }
-        @if (r.status === 'actions') {
+        @if (showReady() && isParticipant()) {
+          <label class="ready-toggle" [class.locked]="readyLocked()">
+            <input
+              type="checkbox"
+              [checked]="meReady()"
+              [disabled]="readyLocked()"
+              (change)="toggleReady($any($event.target).checked)"
+              name="phaseReady"
+            />
+            Estoy listo
+          </label>
+        }
+        @if (isActionPlan()) {
           <label class="chip-select">
             <span class="chip-select-label">Ordenar</span>
             <span class="chip-select-control">
@@ -462,12 +450,12 @@
             <span class="hint">El facilitator está presentando</span>
           }
         }
-        @if (r.status === 'grouping' && isParticipant()) {
+        @if (canGroup() && isParticipant()) {
           <span class="hint">{{ groupingHint() }}</span>
         }
       </div>
 
-      @if (r.status === 'actions') {
+      @if (isActionPlan()) {
         <div class="action-plan">
           <section class="card action-plan-col topics">
             <h2>Temas</h2>
@@ -584,7 +572,7 @@
                         />
                       }
 
-                      @if (isParticipant()) {
+                      @if (isParticipant() && allowActionItems()) {
                         <button
                           type="button"
                           class="neatro-create"
@@ -617,7 +605,7 @@
           <section class="card action-plan-col plan">
             <header class="plan-head">
               <h2>Plan de acciones</h2>
-              @if (isParticipant()) {
+              @if (isParticipant() && allowActionItems()) {
                 <button
                   type="button"
                   class="btn-ghost btn-sm"
@@ -663,7 +651,7 @@
             </ul>
           </section>
         </div>
-      } @else {
+      } @else if (isBoard()) {
       <div class="board">
         @for (col of r.columns; track col.id) {
           <section class="column">
@@ -716,7 +704,7 @@
                     (cdkDragEnded)="onGroupDragEnded()"
                     [class.expanded]="isStackExpanded(card)"
                     [class.group-draggable]="canGroupDrag() && !isStackExpanded(card)"
-                    [class.stack-clickable]="r.status === 'voting'"
+                    [class.stack-clickable]="isVotingPhase()"
                     (click)="onBoardCardClick(card, $event)"
                   >
                     @if (!isStackExpanded(card)) {
@@ -744,6 +732,7 @@
                           [class.stack-header]="member.id === card.id"
                           [class.stack-member]="member.id !== card.id"
                           [class.hidden-card]="member.hidden"
+                          [class.blurred]="member.blurred"
                           [class.group-draggable]="
                             canGroupDrag() && isStackExpanded(card)
                           "
@@ -807,28 +796,44 @@
                           />
                           @if (editingCardId === member.id) {
                             <div class="card-edit" (click)="$event.stopPropagation()" (pointerdown)="$event.stopPropagation()">
-                              <textarea
-                                #editTa
-                                autosizeTextarea
-                                [(ngModel)]="editDraft"
-                                [name]="'edit-' + member.id"
-                                rows="2"
-                                (paste)="onEditPaste($event)"
-                              ></textarea>
-                              <div class="composer-toolbar">
-                                <app-emoji-picker
-                                  (picked)="insertEmojiIntoEdit($event, editTa)"
-                                />
-                                <label class="btn-ghost btn-sm image-pick">
-                                  Imagen / GIF
-                                  <input
-                                    type="file"
-                                    hidden
-                                    [accept]="imageAccept"
-                                    (change)="onEditFile($event)"
+                              @if (showTextInput()) {
+                                <textarea
+                                  #editTa
+                                  autosizeTextarea
+                                  [(ngModel)]="editDraft"
+                                  [name]="'edit-' + member.id"
+                                  rows="2"
+                                  (paste)="onEditPaste($event)"
+                                ></textarea>
+                                <div class="composer-toolbar">
+                                  <app-emoji-picker
+                                    (picked)="insertEmojiIntoEdit($event, editTa)"
                                   />
-                                </label>
-                              </div>
+                                  @if (showImageInput()) {
+                                    <label class="btn-ghost btn-sm image-pick">
+                                      Imagen / GIF
+                                      <input
+                                        type="file"
+                                        hidden
+                                        [accept]="imageAccept"
+                                        (change)="onEditFile($event)"
+                                      />
+                                    </label>
+                                  }
+                                </div>
+                              } @else if (showImageInput()) {
+                                <div class="composer-toolbar">
+                                  <label class="btn-ghost btn-sm image-pick">
+                                    Imagen / GIF
+                                    <input
+                                      type="file"
+                                      hidden
+                                      [accept]="imageAccept"
+                                      (change)="onEditFile($event)"
+                                    />
+                                  </label>
+                                </div>
+                              }
                               @if (editImagePreview || (editImageUrl && !editRemoveImage)) {
                                 <div class="media-preview">
                                   <img
@@ -844,7 +849,7 @@
                                   </button>
                                 </div>
                               }
-                              @if (r.allowAnonymous) {
+                              @if (allowAnonymousComposer()) {
                                 <label class="anon">
                                   <input
                                     type="checkbox"
@@ -892,7 +897,7 @@
                               </div>
                             }
                           }
-                          @if (member.id === card.id && r.status === 'voting') {
+                          @if (member.id === card.id && (isVotingPhase() || allowReactions())) {
                             <ng-container
                               *ngTemplateOutlet="
                                 voteRow;
@@ -926,6 +931,7 @@
                     (cdkDragEnded)="onGroupDragEnded()"
                     [class.group-draggable]="canGroupDrag()"
                     [class.hidden-card]="card.hidden"
+                    [class.blurred]="card.blurred"
                     [class.has-delete]="canDeleteCard(card) && editingCardId !== card.id"
                     (click)="onBoardCardClick(card, $event)"
                   >
@@ -934,28 +940,44 @@
                     />
                     @if (editingCardId === card.id) {
                       <div class="card-edit" (click)="$event.stopPropagation()" (pointerdown)="$event.stopPropagation()">
-                        <textarea
-                          #editTa
-                          autosizeTextarea
-                          [(ngModel)]="editDraft"
-                          [name]="'edit-' + card.id"
-                          rows="2"
-                          (paste)="onEditPaste($event)"
-                        ></textarea>
-                        <div class="composer-toolbar">
-                          <app-emoji-picker
-                            (picked)="insertEmojiIntoEdit($event, editTa)"
-                          />
-                          <label class="btn-ghost btn-sm image-pick">
-                            Imagen / GIF
-                            <input
-                              type="file"
-                              hidden
-                              [accept]="imageAccept"
-                              (change)="onEditFile($event)"
+                        @if (showTextInput()) {
+                          <textarea
+                            #editTa
+                            autosizeTextarea
+                            [(ngModel)]="editDraft"
+                            [name]="'edit-' + card.id"
+                            rows="2"
+                            (paste)="onEditPaste($event)"
+                          ></textarea>
+                          <div class="composer-toolbar">
+                            <app-emoji-picker
+                              (picked)="insertEmojiIntoEdit($event, editTa)"
                             />
-                          </label>
-                        </div>
+                            @if (showImageInput()) {
+                              <label class="btn-ghost btn-sm image-pick">
+                                Imagen / GIF
+                                <input
+                                  type="file"
+                                  hidden
+                                  [accept]="imageAccept"
+                                  (change)="onEditFile($event)"
+                                />
+                              </label>
+                            }
+                          </div>
+                        } @else if (showImageInput()) {
+                          <div class="composer-toolbar">
+                            <label class="btn-ghost btn-sm image-pick">
+                              Imagen / GIF
+                              <input
+                                type="file"
+                                hidden
+                                [accept]="imageAccept"
+                                (change)="onEditFile($event)"
+                              />
+                            </label>
+                          </div>
+                        }
                         @if (editImagePreview || (editImageUrl && !editRemoveImage)) {
                           <div class="media-preview">
                             <img
@@ -971,7 +993,7 @@
                             </button>
                           </div>
                         }
-                        @if (r.allowAnonymous) {
+                        @if (allowAnonymousComposer()) {
                           <label class="anon">
                             <input type="checkbox" [(ngModel)]="editAnonymous" [name]="'edit-anon-' + card.id" />
                             Anónimo
@@ -1003,7 +1025,7 @@
                         </div>
                       }
                     }
-                    @if (r.status === 'voting') {
+                    @if (isVotingPhase() || allowReactions()) {
                       <ng-container
                         *ngTemplateOutlet="voteRow; context: { $implicit: card }"
                       />
@@ -1013,31 +1035,47 @@
                 }
               }
             </div>
-            @if ((r.status === 'comments' || r.status === 'grouping') && canComment()) {
+            @if (canCreateCards() && canComment()) {
               <div class="composer">
-                <textarea
-                  #draftTa
-                  autosizeTextarea
-                  [(ngModel)]="draft[col.id]"
-                  [name]="'draft-' + col.id"
-                  placeholder="Escribe un comentario..."
-                  rows="2"
-                  (paste)="onDraftPaste(col.id, $event)"
-                ></textarea>
-                <div class="composer-toolbar">
-                  <app-emoji-picker
-                    (picked)="insertEmojiIntoDraft(col.id, $event, draftTa)"
-                  />
-                  <label class="btn-ghost btn-sm image-pick">
-                    Imagen / GIF
-                    <input
-                      type="file"
-                      hidden
-                      [accept]="imageAccept"
-                      (change)="onDraftFile(col.id, $event)"
+                @if (showTextInput()) {
+                  <textarea
+                    #draftTa
+                    autosizeTextarea
+                    [(ngModel)]="draft[col.id]"
+                    [name]="'draft-' + col.id"
+                    placeholder="Escribe un comentario..."
+                    rows="2"
+                    (paste)="onDraftPaste(col.id, $event)"
+                  ></textarea>
+                  <div class="composer-toolbar">
+                    <app-emoji-picker
+                      (picked)="insertEmojiIntoDraft(col.id, $event, draftTa)"
                     />
-                  </label>
-                </div>
+                    @if (showImageInput()) {
+                      <label class="btn-ghost btn-sm image-pick">
+                        Imagen / GIF
+                        <input
+                          type="file"
+                          hidden
+                          [accept]="imageAccept"
+                          (change)="onDraftFile(col.id, $event)"
+                        />
+                      </label>
+                    }
+                  </div>
+                } @else if (showImageInput()) {
+                  <div class="composer-toolbar">
+                    <label class="btn-ghost btn-sm image-pick">
+                      Imagen / GIF
+                      <input
+                        type="file"
+                        hidden
+                        [accept]="imageAccept"
+                        (change)="onDraftFile(col.id, $event)"
+                      />
+                    </label>
+                  </div>
+                }
                 @if (draftPreview[col.id]) {
                   <div class="media-preview">
                     <img [src]="draftPreview[col.id]" alt="Vista previa" />
@@ -1050,7 +1088,7 @@
                     </button>
                   </div>
                 }
-                @if (r.allowAnonymous) {
+                @if (allowAnonymousComposer()) {
                   <label class="anon">
                     <input type="checkbox" [(ngModel)]="anonymousDraft" name="anon" />
                     Anónimo
@@ -1065,7 +1103,7 @@
                   Añadir
                 </button>
               </div>
-            } @else if (r.status === 'comments' && isParticipant() && !canComment()) {
+            } @else if (canCreateCards() && isParticipant() && !canComment()) {
               <p class="limit-msg">Límite de comentarios alcanzado</p>
             }
           </section>
@@ -1074,7 +1112,198 @@
       }
     }
 
-    @if (r.status === 'roti' && isParticipant()) {
+    @if (isSemaforo()) {
+      <div class="meta-bar">
+        <span class="hint">Pintá cada ítem según cómo lo ves.</span>
+        @if (r.semaforoProgress; as progress) {
+          <div class="comment-progress" [class.all-done]="progress.allDone">
+            <strong>
+              Listos: {{ progress.ready }} / {{ progress.total }}
+              @if (progress.allDone) {
+                · ¡Todos listos!
+              }
+            </strong>
+            <div class="progress-people">
+              @for (p of progress.participants; track p.participantId) {
+                <span class="person" [class.done]="p.isReady" [class.pending]="!p.isReady">
+                  <app-user-avatar
+                    [avatarId]="p.avatarId"
+                    [ownerId]="p.ownerId"
+                    [seed]="p.participantId"
+                    [name]="p.name"
+                    size="sm"
+                  />
+                  {{ p.isReady ? '✓' : '○' }} {{ p.name }}
+                </span>
+              }
+            </div>
+          </div>
+        }
+        @if (showReady() && isParticipant()) {
+          <label class="ready-toggle" [class.locked]="readyLocked()">
+            <input
+              type="checkbox"
+              [checked]="meReady()"
+              [disabled]="readyLocked()"
+              (change)="toggleReady($any($event.target).checked)"
+              name="semaforoReady"
+            />
+            Estoy listo
+          </label>
+        }
+      </div>
+
+      <div class="semaforo-board">
+        <div class="semaforo-grid" role="list" aria-label="Semáforo">
+          @for (item of sortedSemaforoItems(); track item.id) {
+            <article class="semaforo-card" role="listitem">
+              <header class="semaforo-card-head">
+                <strong>{{ item.title }}</strong>
+                @if (item.description) {
+                  <span class="semaforo-desc">{{ item.description }}</span>
+                }
+              </header>
+
+              @if (isParticipant()) {
+                <div class="semaforo-card-you">
+                  <span class="semaforo-card-label">Vos</span>
+                  <div class="semaforo-pick">
+                    @for (color of semaforoValues; track color) {
+                      <button
+                        type="button"
+                        class="semaforo-swatch"
+                        [class.selected]="mySemaforoVote(item.id) === color"
+                        [attr.aria-label]="semaforoLabel[color]"
+                        [attr.aria-pressed]="mySemaforoVote(item.id) === color"
+                        (click)="setSemaforoColor(item.id, color)"
+                      >
+                        {{ semaforoEmoji()[color] }}
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+
+              @if (r.participants.length > (isParticipant() ? 1 : 0)) {
+                <div class="semaforo-card-others">
+                  @for (p of r.participants; track p.id) {
+                    @if (p.id !== r.me?.participantId) {
+                      <span
+                        class="semaforo-other"
+                        [attr.title]="participantDisplayName(p)"
+                      >
+                        <app-user-avatar
+                          [avatarId]="p.avatarId ?? p.user?.avatarId"
+                          [ownerId]="participantOwnerId(p)"
+                          [seed]="p.id"
+                          [name]="participantDisplayName(p)"
+                          size="sm"
+                        />
+                        @if (semaforoVoteOf(item.id, p.id); as vote) {
+                          <span class="semaforo-vote" [attr.title]="semaforoLabel[vote]">{{
+                            semaforoEmoji()[vote]
+                          }}</span>
+                        } @else {
+                          <span class="semaforo-pending">·</span>
+                        }
+                      </span>
+                    }
+                  }
+                </div>
+              }
+
+              <div class="semaforo-card-summary">
+                <span class="semaforo-card-label">Resumen</span>
+                <span class="semaforo-bars" aria-hidden="true">
+                  <span class="bar red" [style.--n]="item.summary?.red || 0"></span>
+                  <span class="bar yellow" [style.--n]="item.summary?.yellow || 0"></span>
+                  <span class="bar green" [style.--n]="item.summary?.green || 0"></span>
+                </span>
+                <span class="semaforo-counts">
+                  {{ item.summary?.red || 0 }}/{{ item.summary?.yellow || 0 }}/{{
+                    item.summary?.green || 0
+                  }}
+                </span>
+              </div>
+            </article>
+          } @empty {
+            <p class="empty-detail">No hay ítems de semáforo configurados.</p>
+          }
+        </div>
+      </div>
+    }
+
+    @if (isSemaforoReview()) {
+      <div class="semaforo-review">
+        <p class="hint">Ordenado por peor resultado</p>
+        <div class="semaforo-review-grid">
+          @for (item of reviewSemaforoItems(); track item.id) {
+            <article class="card semaforo-review-item">
+              <header class="semaforo-review-head">
+                <span class="semaforo-review-title">
+                  <strong>{{ item.title }}</strong>
+                  @if (item.description) {
+                    <span class="semaforo-desc">{{ item.description }}</span>
+                  }
+                </span>
+                <span class="semaforo-review-meta">
+                  <span class="semaforo-counts">
+                    {{ item.summary?.red || 0 }}/{{ item.summary?.yellow || 0 }}/{{
+                      item.summary?.green || 0
+                    }}
+                  </span>
+                  @if (
+                    (item.summary?.red || 0) >= (item.summary?.green || 0) &&
+                    (item.summary?.red || 0) > 0
+                  ) {
+                    <span class="semaforo-warn" title="Más rojos que verdes">⚠️</span>
+                  } @else if (
+                    (item.summary?.green || 0) > 0 && (item.summary?.red || 0) === 0
+                  ) {
+                    <span class="semaforo-ok" title="Sin rojos">✅</span>
+                  }
+                </span>
+              </header>
+              <div class="semaforo-review-body">
+                <div class="semaforo-by-color">
+                  @for (color of semaforoValues; track color) {
+                    <div class="semaforo-color-group">
+                      <span class="semaforo-color-emoji">{{ semaforoEmoji()[color] }}</span>
+                      @for (p of participantsForSemaforoSummary(item, color); track p.id) {
+                        <span class="badge">{{ participantDisplayName(p) }}</span>
+                      } @empty {
+                        <span class="muted">—</span>
+                      }
+                    </div>
+                  }
+                </div>
+                @if (isParticipant() && allowActionItems()) {
+                  <div class="semaforo-review-actions">
+                    <button
+                      type="button"
+                      class="btn-primary btn-sm semaforo-action-btn"
+                      (click)="openActionFromSemaforoItem(item)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z"
+                        />
+                        <path d="M16.5 3.5v4h4" />
+                      </svg>
+                      Crear accionable
+                    </button>
+                  </div>
+                }
+              </div>
+            </article>
+          } @empty {
+            <p class="empty-detail">No hay ítems de semáforo para analizar.</p>
+          }
+        </div>
+      </div>
+    }
+
+    @if (isRoti() && isParticipant()) {
       <div class="card panel roti-panel">
         <h2>ROTI — Return on Time Invested</h2>
         <p>¿Qué tan útil fue esta retrospectiva? (1–5)</p>
@@ -1091,7 +1320,7 @@
       </div>
     }
 
-    @if (r.status === 'roti' && isSpectator()) {
+    @if (isRoti() && isSpectator()) {
       <div class="card panel roti-panel">
         <h2>ROTI — Return on Time Invested</h2>
         <p>Los participantes están valorando la retrospectiva.</p>
@@ -1190,18 +1419,50 @@
 
     <ng-template #voteRow let-c>
       <div class="vote-row">
-        @if (r.status === 'voting' && isParticipant()) {
-          <button type="button" class="btn-ghost btn-sm" (click)="changeVote(c, -1); $event.stopPropagation()">−</button>
-          <span>{{ myVotesOn(c) }} / {{ r.maxVotesPerCard }}</span>
-          <button
-            type="button"
-            class="btn-ghost btn-sm"
-            (click)="changeVote(c, 1); $event.stopPropagation()"
-            [disabled]="myVotesOn(c) >= r.maxVotesPerCard || votesRemaining() <= 0"
-          >+</button>
-        }
-        @if (r.status === 'actions') {
+        @if (isVotingPhase() && isParticipant()) {
+          @if (isSingleVote()) {
+            <button
+              type="button"
+              class="like-btn"
+              [class.on]="myVotesOn(c) > 0"
+              [disabled]="myVotesOn(c) === 0 && votesRemaining() <= 0"
+              (click)="toggleSingleVote(c, $event)"
+            >
+              ♥ Me gusta
+              <span class="like-count">{{ displayVoteCount(c) }}</span>
+            </button>
+          } @else {
+            <button type="button" class="btn-ghost btn-sm" (click)="changeVote(c, -1); $event.stopPropagation()">−</button>
+            <span>{{ myVotesOn(c) }} / {{ r.maxVotesPerCard }}</span>
+            <button
+              type="button"
+              class="btn-ghost btn-sm"
+              (click)="changeVote(c, 1); $event.stopPropagation()"
+              [disabled]="myVotesOn(c) >= r.maxVotesPerCard || votesRemaining() <= 0"
+            >+</button>
+          }
+        } @else if ((isVotingPhase() || isActionPlan()) && !voteCountsHidden()) {
           <span class="badge">{{ voteCount(c) }} votos</span>
+        }
+        @if (allowReactions()) {
+          <div class="reaction-row">
+            @for (rx of reactionsFor(c); track rx.emoji) {
+              <button
+                type="button"
+                class="reaction-chip"
+                [class.mine]="rx.mine"
+                [disabled]="!isParticipant()"
+                (click)="toggleReaction(c, rx.emoji, $event)"
+              >
+                <span>{{ rx.emoji }}</span>
+                @if (!voteCountsHidden()) {
+                  <span class="reaction-count">{{ rx.count || '—' }}</span>
+                } @else if (rx.mine) {
+                  <span class="reaction-count">·</span>
+                }
+              </button>
+            }
+          </div>
         }
       </div>
     </ng-template>

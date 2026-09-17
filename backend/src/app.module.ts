@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RetrosModule } from './retros/retros.module';
 import { TeamsModule } from './teams/teams.module';
+import { PhasesModule } from './phases/phases.module';
 import { TemplatesModule } from './templates/templates.module';
 import { UploadsModule } from './uploads/uploads.module';
 
@@ -26,6 +27,7 @@ class HealthController {
     AuthModule,
     TeamsModule,
     TemplatesModule,
+    PhasesModule,
     RetrosModule,
     ActionsModule,
   ],

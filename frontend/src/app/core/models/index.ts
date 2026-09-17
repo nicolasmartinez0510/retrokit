@@ -1,11 +1,15 @@
 export type TeamRole = 'facilitator' | 'member';
-export type RetroStatus =
-  | 'comments'
-  | 'grouping'
-  | 'voting'
-  | 'actions'
+export type PhaseKind =
+  | 'board'
+  | 'action_plan'
   | 'roti'
-  | 'closed';
+  | 'semaforo'
+  | 'semaforo_review';
+export type CardContentMode = 'text_and_image' | 'image_only' | 'text_only';
+export type OthersVisibility = 'visible' | 'blurred' | 'hidden';
+export type VotingMode = 'off' | 'single' | 'multi';
+export type CardSort = 'original' | 'most_voted' | 'least_voted' | 'random';
+export type SemaforoValue = 'red' | 'yellow' | 'green';
 export type ActionStatus = 'pending' | 'doing' | 'done' | 'unmet';
 export type ActionEntryMode =
   | 'retrospectiva'
@@ -13,6 +17,9 @@ export type ActionEntryMode =
   | 'planning'
   | 'refinamiento'
   | 'otro';
+
+/** @deprecated Use PhaseKind / RetroPhase. Kept for gradual migration of display code. */
+export type RetroStatus = PhaseKind | 'closed';
 
 export interface User {
   id: string;
@@ -36,6 +43,19 @@ export interface TemplateColumnInput {
   position: number;
 }
 
+export interface TemplatePhaseInput {
+  phaseId: string;
+  position: number;
+  hiddenColumnIds?: string[];
+}
+
+export interface SemaforoItemInput {
+  id?: string;
+  title: string;
+  description?: string | null;
+  position?: number;
+}
+
 export interface CreateTemplatePayload {
   name: string;
   description?: string | null;
@@ -45,6 +65,8 @@ export interface CreateTemplatePayload {
   backgroundColor?: string | null;
   backgroundImageUrl?: string | null;
   columns: TemplateColumnInput[];
+  phases?: TemplatePhaseInput[];
+  semaforoItems?: SemaforoItemInput[];
 }
 
 export interface UpdateTemplatePayload {
@@ -56,6 +78,8 @@ export interface UpdateTemplatePayload {
   backgroundColor?: string | null;
   backgroundImageUrl?: string | null;
   columns?: TemplateColumnInput[];
+  phases?: TemplatePhaseInput[];
+  semaforoItems?: SemaforoItemInput[];
 }
 
 export interface AuthResponse {
@@ -125,9 +149,14 @@ export interface RetroParticipantSummary {
 export interface RetroSummary {
   id: string;
   title: string;
-  status: RetroStatus;
+  /** @deprecated Prefer closed + currentPhaseName */
+  status?: RetroStatus;
   createdAt: string;
   closedAt?: string | null;
+  closed?: boolean;
+  currentPhaseName?: string | null;
+  currentPhaseKind?: PhaseKind | null;
+  currentPhase?: { id: string; name: string; kind: PhaseKind } | null;
   template?: { name: string } | null;
   _count?: { cards: number };
   participants?: RetroParticipantSummary[];
@@ -154,6 +183,71 @@ export interface TemplateColumn {
   position: number;
 }
 
+export interface PhaseCapabilities {
+  allowCreateCards: boolean;
+  cardContent: CardContentMode;
+  maxCardsPerParticipant: number | null;
+  allowEditOwnCards: boolean;
+  anonymousCards: boolean;
+  othersVisibility: OthersVisibility;
+  revealOnReady: boolean;
+  allowGrouping: boolean;
+  allowCrossColumnGrouping: boolean;
+  voting: VotingMode;
+  hideVoteCounts: boolean;
+  allowReactions: boolean;
+  reactionEmojis: string[];
+  /** Ordered [red, yellow, green] display emojis for semáforo phases. */
+  semaforoEmojis: string[];
+  allowPresentation: boolean;
+  allowActionItems: boolean;
+  showReadyCheck: boolean;
+  defaultSort: CardSort;
+}
+
+export interface Phase extends PhaseCapabilities {
+  id: string;
+  name: string;
+  description?: string | null;
+  kind: PhaseKind;
+  icon?: string | null;
+  color?: string | null;
+  instructions?: string | null;
+  timerSeconds?: number | null;
+  isGlobal: boolean;
+  isSystem: boolean;
+  createdById?: string | null;
+  createdBy?: { id: string; name: string; email: string } | null;
+  templateCount?: number;
+  usedIn?: { id: string; name: string }[];
+}
+
+export interface TemplatePhaseLink {
+  id: string;
+  phaseId: string;
+  position: number;
+  hiddenColumnIds: string[];
+  phase: Phase;
+}
+
+export interface SemaforoItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  position: number;
+  note?: string | null;
+  votes?: SemaforoVote[];
+  summary?: { red: number; yellow: number; green: number };
+}
+
+export interface SemaforoVote {
+  id: string;
+  retroId: string;
+  itemId: string;
+  participantId: string;
+  value: SemaforoValue;
+}
+
 export interface Template {
   id: string;
   name: string;
@@ -167,6 +261,8 @@ export interface Template {
   createdById?: string | null;
   createdBy?: { id: string; name: string; email: string } | null;
   columns: TemplateColumn[];
+  phases?: TemplatePhaseLink[];
+  semaforoItems?: SemaforoItem[];
 }
 
 export interface Participant {
@@ -177,6 +273,7 @@ export interface Participant {
   isGuest: boolean;
   commentsReady?: boolean;
   votesReady?: boolean;
+  semaforoReady?: boolean;
   avatarId?: string | null;
   user?: { id: string; name: string; email?: string; avatarId?: string | null } | null;
 }
@@ -195,6 +292,7 @@ export interface Card {
   retroId: string;
   columnId: string;
   authorId: string;
+  createdInPhaseId?: string | null;
   content: string;
   imageUrl?: string | null;
   isAnonymous: boolean;
@@ -202,16 +300,26 @@ export interface Card {
   position: number;
   createdAt: string;
   hidden?: boolean;
+  blurred?: boolean;
   authorName?: string;
   authorAvatarId?: string | null;
   author?: Participant;
   votes?: Vote[];
+  reactions?: CardReaction[];
   /** Client-only: images from grouped cards */
   imageUrls?: string[];
   /** Client-only: this row is a group stack on the board */
   isGroup?: boolean;
   groupSize?: number;
   members?: Card[];
+}
+
+export interface CardReaction {
+  id: string;
+  retroId: string;
+  cardId: string;
+  participantId: string;
+  emoji: string;
 }
 
 export interface CardGroup {
@@ -340,12 +448,49 @@ export interface ActionProgressUpdate {
   author?: { id: string; name: string; avatarId?: string | null } | null;
 }
 
+export interface SemaforoProgressParticipant {
+  participantId: string;
+  name: string;
+  avatarId?: string | null;
+  ownerId?: string | null;
+  isReady: boolean;
+  votedCount: number;
+}
+
+export interface SemaforoProgress {
+  ready: number;
+  total: number;
+  allDone: boolean;
+  participants: SemaforoProgressParticipant[];
+}
+
+export interface RetroPhase extends PhaseCapabilities {
+  id: string;
+  retroId?: string;
+  position: number;
+  sourcePhaseId?: string | null;
+  name: string;
+  description?: string | null;
+  kind: PhaseKind;
+  icon?: string | null;
+  color?: string | null;
+  instructions?: string | null;
+  timerSeconds?: number | null;
+  hiddenColumnIds?: string[];
+  capabilities?: PhaseCapabilities & { kind?: PhaseKind; closed?: boolean };
+}
+
 export interface RetroBoard {
   id: string;
   teamId: string;
   templateId: string;
   title: string;
-  status: RetroStatus;
+  /** @deprecated Prefer currentPhase / closed */
+  status?: RetroStatus;
+  currentPhaseId: string | null;
+  currentPhase?: RetroPhase | null;
+  phases: RetroPhase[];
+  closed: boolean;
   guestInviteCode: string;
   memberInviteCode: string;
   maxCommentsPerParticipant: number | null;
@@ -366,10 +511,15 @@ export interface RetroBoard {
   groups: CardGroup[];
   cards: Card[];
   votes: Vote[];
+  reactions?: CardReaction[];
   actionItems: ActionItem[];
+  semaforoItems?: SemaforoItem[];
+  semaforoVotes?: SemaforoVote[];
+  voteCountsHidden?: boolean;
   team?: { id: string; name: string };
   commentProgress?: CommentProgress;
   voteProgress?: VoteProgress;
+  semaforoProgress?: SemaforoProgress;
   me?: {
     participantId?: string;
     myCommentCount: number;
@@ -377,6 +527,7 @@ export interface RetroBoard {
     votesRemaining: number;
     commentsReady: boolean;
     votesReady: boolean;
+    semaforoReady?: boolean;
     isFacilitator?: boolean;
   };
 }
@@ -398,6 +549,8 @@ export interface CreateRetroPayload {
   allowAnonymous?: boolean;
   allowCrossColumnGrouping?: boolean;
   timerSeconds?: number | null;
+  phases?: { phaseId: string; position: number }[];
+  semaforoItems?: SemaforoItemInput[];
 }
 
 export interface RetroReport extends RetroBoard {
@@ -405,7 +558,16 @@ export interface RetroReport extends RetroBoard {
   rotiAverage: number | null;
 }
 
-export const PHASES: { key: RetroStatus; label: string }[] = [
+export const PHASE_KIND_LABELS: Record<PhaseKind, string> = {
+  board: 'Tablero',
+  action_plan: 'Plan de acción',
+  roti: 'ROTI',
+  semaforo: 'Semáforo',
+  semaforo_review: 'Analizar semáforo',
+};
+
+/** @deprecated Use retro.phases */
+export const PHASES: { key: string; label: string }[] = [
   { key: 'comments', label: 'Comentarios' },
   { key: 'grouping', label: 'Agrupar' },
   { key: 'voting', label: 'Votar' },
@@ -413,13 +575,18 @@ export const PHASES: { key: RetroStatus; label: string }[] = [
   { key: 'roti', label: 'ROTI' },
 ];
 
-export const PHASE_LABELS: Record<RetroStatus, string> = {
+/** @deprecated Use phase.name from snapshot */
+export const PHASE_LABELS: Record<string, string> = {
   comments: 'Comentarios',
   grouping: 'Agrupar',
   voting: 'Votar',
   actions: 'Plan de acción',
   roti: 'ROTI',
+  semaforo: 'Semáforo',
+  semaforo_review: 'Analizar semáforo',
   closed: 'Cerrada',
+  board: 'Tablero',
+  action_plan: 'Plan de acción',
 };
 
 export const ACTION_STATUS_LABELS: Record<ActionStatus, string> = {

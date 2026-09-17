@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, RetroStatus, TeamRole } from '@prisma/client';
+import { Prisma, TeamRole } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,26 +26,42 @@ import {
   CreateRetroDto,
   GroupCardsDto,
   JoinRetroDto,
-  UngroupCardsDto,
+  ReactionDto,
   RotiDto,
+  SemaforoVoteDto,
   TimerAddDto,
   TimerDto,
+  UngroupCardsDto,
   UpdateSettingsDto,
   VoteDto,
 } from './dto/retros.dto';
 import { RealtimeEventsService } from '../realtime/realtime-events.service';
+import {
+  DEFAULT_CLASSIC_PHASE_IDS,
+  DEFAULT_SEMAFORO_ITEMS,
+  PhaseCapabilityFlags,
+  PhaseKind,
+  phaseCapabilities,
+  resolveMaxCards,
+  snapshotPhaseFields,
+} from './phase-rules';
 
-const PHASE_ORDER: RetroStatus[] = [
-  RetroStatus.comments,
-  RetroStatus.grouping,
-  RetroStatus.voting,
-  RetroStatus.actions,
-  RetroStatus.roti,
-  RetroStatus.closed,
-];
+const cardInclude = {
+  author: {
+    include: {
+      user: { select: userPublicSelect },
+    },
+  },
+  votes: true,
+  reactions: true,
+} as const;
 
 const boardInclude = {
   columns: { orderBy: { position: 'asc' as const } },
+  phases: {
+    include: { hiddenColumns: true },
+    orderBy: { position: 'asc' as const },
+  },
   participants: {
     include: {
       user: { select: userPublicSelect },
@@ -58,23 +74,33 @@ const boardInclude = {
     },
   },
   cards: {
-    include: {
-      author: {
-        include: {
-          user: { select: userPublicSelect },
-        },
-      },
-      votes: true,
-    },
+    include: cardInclude,
     orderBy: { position: 'asc' as const },
   },
   votes: true,
+  reactions: true,
+  semaforoItems: { orderBy: { position: 'asc' as const } },
+  semaforoVotes: true,
   actionItems: {
     include: actionItemInclude,
     orderBy: { createdAt: 'asc' as const },
   },
   team: { select: { id: true, name: true } },
 } as const;
+
+type RetroPhaseRecord = Prisma.RetroPhaseGetPayload<{
+  include: { hiddenColumns: true };
+}>;
+
+type RetroRecord = Prisma.RetrospectiveGetPayload<Record<string, never>>;
+
+/** Effective capabilities of the current phase, taking `closedAt` into account. */
+export interface EffectiveCaps extends PhaseCapabilityFlags {
+  kind: PhaseKind;
+  closed: boolean;
+}
+
+const SEMAFORO_KINDS: PhaseKind[] = ['semaforo', 'semaforo_review'];
 
 @Injectable()
 export class RetrosService {
@@ -93,15 +119,43 @@ export class RetrosService {
     const template = await this.prisma.template.findFirst({
       where: {
         id: dto.templateId,
-        ...(admin
-          ? {}
-          : { OR: [{ isGlobal: true }, { createdById: userId }] }),
+        ...(admin ? {} : { OR: [{ isGlobal: true }, { createdById: userId }] }),
       },
-      include: { columns: { orderBy: { position: 'asc' } } },
+      include: {
+        columns: { orderBy: { position: 'asc' } },
+        phases: {
+          include: { phase: true, hiddenColumns: true },
+          orderBy: { position: 'asc' },
+        },
+        semaforoItems: { orderBy: { position: 'asc' } },
+      },
     });
     if (!template) {
       throw new NotFoundException('Template not found');
     }
+
+    // Resolve the ordered list of phases + hidden template column ids per phase.
+    const phasePlan = await this.resolvePhasePlan(userId, admin, template, dto);
+    const hasSemaforo = phasePlan.some((p) =>
+      SEMAFORO_KINDS.includes(p.phase.kind),
+    );
+
+    const semaforoItems = hasSemaforo
+      ? dto.semaforoItems?.length
+        ? dto.semaforoItems.map((i) => ({
+            title: i.title.trim(),
+            description: i.description?.trim() || null,
+          }))
+        : template.semaforoItems.length
+          ? template.semaforoItems.map((i) => ({
+              title: i.title,
+              description: i.description,
+            }))
+          : DEFAULT_SEMAFORO_ITEMS.map((i) => ({
+              title: i.title,
+              description: i.description,
+            }))
+      : [];
 
     const openActionsReminder = await this.prisma.actionItem.count({
       where: {
@@ -113,49 +167,163 @@ export class RetrosService {
     const guestInviteCode = await this.uniqueCode('guest');
     const memberInviteCode = await this.uniqueCode('member');
 
-    const retro = await this.prisma.retrospective.create({
-      data: {
-        teamId: dto.teamId,
-        templateId: dto.templateId,
-        title: dto.title.trim(),
-        maxCommentsPerParticipant:
-          dto.maxCommentsPerParticipant !== undefined
-            ? dto.maxCommentsPerParticipant
-            : (template.maxCommentsPerParticipant ?? null),
-        votesPerParticipant:
-          dto.votesPerParticipant ?? template.votesPerParticipant ?? 5,
-        maxVotesPerCard: dto.maxVotesPerCard ?? template.maxVotesPerCard ?? 2,
-        allowAnonymous: dto.allowAnonymous ?? true,
-        allowCrossColumnGrouping: dto.allowCrossColumnGrouping ?? false,
-        timerSeconds: dto.timerSeconds ?? null,
-        backgroundColor: template.backgroundColor,
-        backgroundImageUrl: template.backgroundImageUrl,
-        guestInviteCode,
-        memberInviteCode,
-        columns: {
-          create: template.columns.map((c) => ({
-            title: c.title,
-            description: c.description,
-            icon: c.icon,
-            logoUrl: c.logoUrl,
-            position: c.position,
-          })),
-        },
-        participants: {
-          create: {
-            userId,
-            isGuest: false,
+    const retroId = await this.prisma.$transaction(async (tx) => {
+      const retro = await tx.retrospective.create({
+        data: {
+          teamId: dto.teamId,
+          templateId: dto.templateId,
+          title: dto.title.trim(),
+          maxCommentsPerParticipant:
+            dto.maxCommentsPerParticipant !== undefined
+              ? dto.maxCommentsPerParticipant
+              : (template.maxCommentsPerParticipant ?? null),
+          votesPerParticipant:
+            dto.votesPerParticipant ?? template.votesPerParticipant ?? 5,
+          maxVotesPerCard: dto.maxVotesPerCard ?? template.maxVotesPerCard ?? 2,
+          allowAnonymous: dto.allowAnonymous ?? true,
+          allowCrossColumnGrouping: dto.allowCrossColumnGrouping ?? false,
+          timerSeconds: dto.timerSeconds ?? null,
+          backgroundColor: template.backgroundColor,
+          backgroundImageUrl: template.backgroundImageUrl,
+          guestInviteCode,
+          memberInviteCode,
+          columns: {
+            create: template.columns.map((c) => ({
+              title: c.title,
+              description: c.description,
+              icon: c.icon,
+              logoUrl: c.logoUrl,
+              position: c.position,
+            })),
+          },
+          participants: {
+            create: {
+              userId,
+              isGuest: false,
+            },
+          },
+          semaforoItems: {
+            create: semaforoItems.map((item, position) => ({
+              title: item.title,
+              description: item.description,
+              position,
+            })),
           },
         },
-      },
+        include: { columns: { orderBy: { position: 'asc' } } },
+      });
+
+      // template column id -> retro column id (matched by position)
+      const columnIdMap = new Map<string, string>();
+      for (const tc of template.columns) {
+        const rc = retro.columns.find((c) => c.position === tc.position);
+        if (rc) columnIdMap.set(tc.id, rc.id);
+      }
+
+      let firstPhaseId: string | null = null;
+      for (const [position, entry] of phasePlan.entries()) {
+        const hiddenColumnIds = entry.hiddenTemplateColumnIds
+          .map((id) => columnIdMap.get(id))
+          .filter((id): id is string => !!id);
+        const created = await tx.retroPhase.create({
+          data: {
+            retroId: retro.id,
+            position,
+            ...snapshotPhaseFields(entry.phase),
+            hiddenColumns: {
+              create: hiddenColumnIds.map((columnId) => ({ columnId })),
+            },
+          },
+        });
+        if (firstPhaseId === null) firstPhaseId = created.id;
+      }
+
+      await tx.retrospective.update({
+        where: { id: retro.id },
+        data: { currentPhaseId: firstPhaseId },
+      });
+
+      return retro.id;
     });
 
-    const board = await this.getBoard(retro.id, {
+    const board = await this.getBoard(retroId, {
       sub: userId,
       type: 'user',
     });
 
     return { ...board, openActionsReminder };
+  }
+
+  private async resolvePhasePlan(
+    userId: string,
+    admin: boolean,
+    template: Prisma.TemplateGetPayload<{
+      include: {
+        columns: true;
+        phases: { include: { phase: true; hiddenColumns: true } };
+      };
+    }>,
+    dto: CreateRetroDto,
+  ) {
+    const templateHidden = new Map<string, string[]>();
+    for (const tp of template.phases) {
+      templateHidden.set(
+        tp.phaseId,
+        tp.hiddenColumns.map((h) => h.columnId),
+      );
+    }
+
+    if (dto.phases?.length) {
+      const ordered = [...dto.phases].sort((a, b) => a.position - b.position);
+      const ids = [...new Set(ordered.map((p) => p.phaseId))];
+      const phases = await this.prisma.phase.findMany({
+        where: {
+          id: { in: ids },
+          ...(admin
+            ? {}
+            : {
+                OR: [
+                  { isGlobal: true },
+                  { isSystem: true },
+                  { createdById: userId },
+                ],
+              }),
+        },
+      });
+      const byId = new Map(phases.map((p) => [p.id, p]));
+      const missing = ids.filter((id) => !byId.has(id));
+      if (missing.length) {
+        throw new NotFoundException(`Phase not found: ${missing.join(', ')}`);
+      }
+      return ids.map((id) => ({
+        phase: byId.get(id)!,
+        hiddenTemplateColumnIds: templateHidden.get(id) ?? [],
+      }));
+    }
+
+    if (template.phases.length) {
+      return template.phases.map((tp) => ({
+        phase: tp.phase,
+        hiddenTemplateColumnIds: tp.hiddenColumns.map((h) => h.columnId),
+      }));
+    }
+
+    const defaults = await this.prisma.phase.findMany({
+      where: { id: { in: [...DEFAULT_CLASSIC_PHASE_IDS] } },
+    });
+    const byId = new Map(defaults.map((p) => [p.id, p]));
+    const plan = DEFAULT_CLASSIC_PHASE_IDS.filter((id) => byId.has(id)).map(
+      (id) => ({
+        phase: byId.get(id)!,
+        hiddenTemplateColumnIds: [] as string[],
+      }),
+    );
+    if (!plan.length) {
+      throw new BadRequestException(
+        'No phases available; seed the system phases first',
+      );
+    }
+    return plan;
   }
 
   async join(user: JwtPayload, dto: JoinRetroDto) {
@@ -194,10 +362,7 @@ export class RetrosService {
         throw new BadRequestException('guestName is required');
       }
       const guestName = dto.guestName.trim();
-      const avatarId = parseAvatarId(
-        dto.avatarId,
-        `${retro.id}:${guestName}`,
-      );
+      const avatarId = parseAvatarId(dto.avatarId, `${retro.id}:${guestName}`);
       const participant = await this.prisma.participant.create({
         data: {
           retroId: retro.id,
@@ -268,8 +433,7 @@ export class RetrosService {
     dto: UpdateSettingsDto,
   ) {
     await this.assertFacilitatorOfRetro(user, retroId);
-    const title =
-      dto.title !== undefined ? dto.title.trim() : undefined;
+    const title = dto.title !== undefined ? dto.title.trim() : undefined;
     if (dto.title !== undefined && !title) {
       throw new BadRequestException('Title is required');
     }
@@ -312,36 +476,58 @@ export class RetrosService {
     return this.getBoard(retroId, user);
   }
 
-  async advancePhase(user: JwtPayload, retroId: string, status: string) {
+  /**
+   * Move the retro to another of its phases, or close it (`phaseId === 'closed'`).
+   * The facilitator may jump to any phase, including going back and reopening.
+   */
+  async advancePhase(user: JwtPayload, retroId: string, phaseId: string) {
     await this.assertFacilitatorOfRetro(user, retroId);
     const retro = await this.getRetroOrThrow(retroId);
-    const target = status as RetroStatus;
-    const currentIdx = PHASE_ORDER.indexOf(retro.status);
-    const targetIdx = PHASE_ORDER.indexOf(target);
 
-    if (targetIdx < 0) {
+    if (phaseId === 'closed') {
+      if (retro.closedAt) {
+        return this.getBoard(retroId, user);
+      }
+      const updated = await this.prisma.retrospective.update({
+        where: { id: retroId },
+        data: {
+          closedAt: new Date(),
+          presenterCardId: null,
+          timerEndsAt: null,
+          timerPausedRemaining: null,
+        },
+      });
+      this.events.emit(retroId, 'phase-changed', {
+        phaseId: updated.currentPhaseId,
+        closedAt: updated.closedAt,
+      });
+      return this.getBoard(retroId, user);
+    }
+
+    const phase = await this.prisma.retroPhase.findFirst({
+      where: { id: phaseId, retroId },
+    });
+    if (!phase) {
       throw new BadRequestException('Invalid phase');
     }
-    // Facilitator may jump to any phase (including going back)
-    if (targetIdx === currentIdx) {
+
+    if (retro.currentPhaseId === phase.id && !retro.closedAt) {
       return this.getBoard(retroId, user);
     }
 
     const updated = await this.prisma.retrospective.update({
       where: { id: retroId },
       data: {
-        status: target,
+        currentPhaseId: phase.id,
         presenterCardId: null,
-        ...(target === RetroStatus.closed
-          ? { closedAt: new Date(), timerEndsAt: null }
-          : { closedAt: null }),
+        closedAt: null,
         timerEndsAt: null,
         timerPausedRemaining: null,
       },
     });
 
     this.events.emit(retroId, 'phase-changed', {
-      status: updated.status,
+      phaseId: updated.currentPhaseId,
       closedAt: updated.closedAt,
     });
 
@@ -355,12 +541,10 @@ export class RetrosService {
     file?: Express.Multer.File,
   ) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (
-      retro.status !== RetroStatus.comments &&
-      retro.status !== RetroStatus.grouping
-    ) {
+    const { phase, caps } = await this.currentPhaseCaps(retro);
+    if (!caps.allowCreateCards) {
       throw new BadRequestException(
-        'Cards can only be created in comments or grouping phase',
+        'Cards cannot be created in the current phase',
       );
     }
 
@@ -371,17 +555,34 @@ export class RetrosService {
     if (!column) {
       throw new NotFoundException('Column not found');
     }
+    if (phase.hiddenColumns.some((h) => h.columnId === column.id)) {
+      throw new BadRequestException('Column is hidden in this phase');
+    }
 
-    if (retro.maxCommentsPerParticipant != null) {
-      const count = await this.prisma.card.count({
-        where: { retroId, authorId: participant.id },
-      });
-      if (count >= retro.maxCommentsPerParticipant) {
+    const maxCards = resolveMaxCards(
+      caps.maxCardsPerParticipant,
+      retro.maxCommentsPerParticipant,
+    );
+    const cardCountWhere = this.cardQuotaWhere(
+      retroId,
+      participant.id,
+      phase,
+      caps,
+    );
+    if (maxCards != null) {
+      const count = await this.prisma.card.count({ where: cardCountWhere });
+      if (count >= maxCards) {
         throw new BadRequestException('Comment limit reached');
       }
     }
 
     const content = (dto.content ?? '').trim();
+    if (caps.cardContent === 'text_only' && file) {
+      throw new BadRequestException('Images are not allowed in this phase');
+    }
+    if (caps.cardContent === 'image_only' && !file) {
+      throw new BadRequestException('An image is required in this phase');
+    }
     if (!content && !file) {
       throw new BadRequestException('Comment needs text or an image');
     }
@@ -410,29 +611,20 @@ export class RetrosService {
           retroId,
           columnId: dto.columnId,
           authorId: participant.id,
+          createdInPhaseId: phase.id,
           content,
           imageUrl,
           isAnonymous,
           position: (maxPos._max.position ?? -1) + 1,
         },
-        include: {
-          author: {
-            include: {
-              user: { select: userPublicSelect },
-            },
-          },
-          votes: true,
-        },
+        include: cardInclude,
       });
 
-      if (retro.maxCommentsPerParticipant != null) {
+      if (maxCards != null) {
         const newCount = await this.prisma.card.count({
-          where: { retroId, authorId: participant.id },
+          where: cardCountWhere,
         });
-        if (
-          newCount >= retro.maxCommentsPerParticipant &&
-          !participant.commentsReady
-        ) {
+        if (newCount >= maxCards && !participant.commentsReady) {
           await this.prisma.participant.update({
             where: { id: participant.id },
             data: { commentsReady: true },
@@ -454,41 +646,38 @@ export class RetrosService {
     }
   }
 
-  async setCommentsReady(user: JwtPayload, retroId: string, ready: boolean) {
+  /**
+   * Toggle the participant's "I'm ready" flag for the current phase.
+   * Which flag is used depends on the phase: semaforo → semaforoReady,
+   * voting → votesReady, otherwise commentsReady.
+   */
+  async setReady(user: JwtPayload, retroId: string, ready: boolean) {
     const retro = await this.getRetroOrThrow(retroId);
+    const { phase, caps } = await this.currentPhaseCaps(retro);
     const participant = await this.requireParticipant(user, retroId);
 
-    if (
-      retro.status === RetroStatus.comments ||
-      retro.status === RetroStatus.grouping
-    ) {
-      if (!ready && retro.maxCommentsPerParticipant != null) {
-        const count = await this.prisma.card.count({
-          where: { retroId, authorId: participant.id },
-        });
-        if (count >= retro.maxCommentsPerParticipant) {
-          throw new BadRequestException(
-            'Cannot unready when comment limit is reached',
-          );
-        }
-      }
+    if (!caps.showReadyCheck) {
+      throw new BadRequestException(
+        'Ready status is not available in the current phase',
+      );
+    }
 
+    if (caps.kind === 'semaforo') {
       const updated = await this.prisma.participant.update({
         where: { id: participant.id },
-        data: { commentsReady: ready },
+        data: { semaforoReady: ready },
       });
-
-      this.events.emit(retroId, 'comments-ready-changed', {
+      this.events.emit(retroId, 'semaforo-ready-changed', {
         participantId: participant.id,
         ready,
       });
-
-      return { commentsReady: updated.commentsReady };
+      return { semaforoReady: updated.semaforoReady };
     }
 
-    if (retro.status === RetroStatus.voting) {
+    if (caps.voting !== 'off') {
+      const maxVotesPerCard = this.effectiveMaxVotesPerCard(retro, caps);
       if (!ready) {
-        await this.collapseGroupedCardVotes(retroId, retro.maxVotesPerCard);
+        await this.collapseGroupedCardVotes(retroId, maxVotesPerCard);
         const [myVotes, groupedCards] = await Promise.all([
           this.prisma.vote.findMany({
             where: { retroId, participantId: participant.id },
@@ -520,9 +709,32 @@ export class RetrosService {
       return { votesReady: updated.votesReady };
     }
 
-    throw new BadRequestException(
-      'Ready status can only be changed in comments, grouping, or voting phase',
+    const maxCards = resolveMaxCards(
+      caps.maxCardsPerParticipant,
+      retro.maxCommentsPerParticipant,
     );
+    if (!ready && maxCards != null && caps.allowCreateCards) {
+      const count = await this.prisma.card.count({
+        where: this.cardQuotaWhere(retroId, participant.id, phase, caps),
+      });
+      if (count >= maxCards) {
+        throw new BadRequestException(
+          'Cannot unready when comment limit is reached',
+        );
+      }
+    }
+
+    const updated = await this.prisma.participant.update({
+      where: { id: participant.id },
+      data: { commentsReady: ready },
+    });
+
+    this.events.emit(retroId, 'comments-ready-changed', {
+      participantId: participant.id,
+      ready,
+    });
+
+    return { commentsReady: updated.commentsReady };
   }
 
   async updateCard(
@@ -532,12 +744,8 @@ export class RetrosService {
     dto: { content?: string; columnId?: string; isAnonymous?: boolean },
   ) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (
-      retro.status !== RetroStatus.comments &&
-      retro.status !== RetroStatus.grouping
-    ) {
-      throw new BadRequestException('Cards can only be edited in early phases');
-    }
+    const { caps } = await this.currentPhaseCaps(retro);
+    this.assertCanEditOwnCards(caps);
 
     const participant = await this.requireParticipant(user, retroId);
     const card = await this.prisma.card.findFirst({
@@ -572,14 +780,7 @@ export class RetrosService {
         ...(dto.columnId !== undefined && { columnId: dto.columnId }),
         ...(dto.isAnonymous !== undefined && { isAnonymous: dto.isAnonymous }),
       },
-      include: {
-        author: {
-          include: {
-            user: { select: userPublicSelect },
-          },
-        },
-        votes: true,
-      },
+      include: cardInclude,
     });
 
     this.events.emit(retroId, 'card-updated', updated);
@@ -593,11 +794,10 @@ export class RetrosService {
     file: Express.Multer.File,
   ) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (
-      retro.status !== RetroStatus.comments &&
-      retro.status !== RetroStatus.grouping
-    ) {
-      throw new BadRequestException('Cards can only be edited in early phases');
+    const { caps } = await this.currentPhaseCaps(retro);
+    this.assertCanEditOwnCards(caps);
+    if (caps.cardContent === 'text_only') {
+      throw new BadRequestException('Images are not allowed in this phase');
     }
 
     const participant = await this.requireParticipant(user, retroId);
@@ -617,14 +817,7 @@ export class RetrosService {
       const updated = await this.prisma.card.update({
         where: { id: cardId },
         data: { imageUrl },
-        include: {
-          author: {
-            include: {
-              user: { select: userPublicSelect },
-            },
-          },
-          votes: true,
-        },
+        include: cardInclude,
       });
       if (previousUrl) {
         await this.uploads.deleteByPublicUrl(previousUrl);
@@ -637,18 +830,10 @@ export class RetrosService {
     }
   }
 
-  async deleteCardImage(
-    user: JwtPayload,
-    retroId: string,
-    cardId: string,
-  ) {
+  async deleteCardImage(user: JwtPayload, retroId: string, cardId: string) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (
-      retro.status !== RetroStatus.comments &&
-      retro.status !== RetroStatus.grouping
-    ) {
-      throw new BadRequestException('Cards can only be edited in early phases');
-    }
+    const { caps } = await this.currentPhaseCaps(retro);
+    this.assertCanEditOwnCards(caps);
 
     const participant = await this.requireParticipant(user, retroId);
     const card = await this.prisma.card.findFirst({
@@ -669,14 +854,7 @@ export class RetrosService {
     const updated = await this.prisma.card.update({
       where: { id: cardId },
       data: { imageUrl: null },
-      include: {
-        author: {
-          include: {
-            user: { select: userPublicSelect },
-          },
-        },
-        votes: true,
-      },
+      include: cardInclude,
     });
     await this.uploads.deleteByPublicUrl(previousUrl);
     this.events.emit(retroId, 'card-updated', updated);
@@ -686,12 +864,10 @@ export class RetrosService {
   async deleteCard(user: JwtPayload, retroId: string, cardId: string) {
     await this.loadAccess(user, retroId);
     const retro = await this.getRetroOrThrow(retroId);
-    if (
-      retro.status !== RetroStatus.comments &&
-      retro.status !== RetroStatus.grouping
-    ) {
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (!caps.allowCreateCards) {
       throw new BadRequestException(
-        'Cards can only be deleted in early phases',
+        'Cards cannot be deleted in the current phase',
       );
     }
 
@@ -724,16 +900,13 @@ export class RetrosService {
     return { deleted: true };
   }
 
-  async setPresenter(
-    user: JwtPayload,
-    retroId: string,
-    cardId: string | null,
-  ) {
+  async setPresenter(user: JwtPayload, retroId: string, cardId: string | null) {
     await this.assertFacilitatorOfRetro(user, retroId);
     const retro = await this.getRetroOrThrow(retroId);
-    if (retro.status !== RetroStatus.actions) {
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (!caps.allowPresentation) {
       throw new BadRequestException(
-        'Presentation is only available in the action plan phase',
+        'Presentation is not available in the current phase',
       );
     }
 
@@ -757,8 +930,11 @@ export class RetrosService {
 
   async groupCards(user: JwtPayload, retroId: string, dto: GroupCardsDto) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (retro.status !== RetroStatus.grouping) {
-      throw new BadRequestException('Grouping only allowed in grouping phase');
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (!caps.allowGrouping) {
+      throw new BadRequestException(
+        'Grouping is not allowed in the current phase',
+      );
     }
     await this.requireParticipant(user, retroId);
 
@@ -775,7 +951,7 @@ export class RetrosService {
     }
 
     this.assertSameColumnUnlessAllowed(
-      retro,
+      this.groupingRules(retro, caps),
       source.columnId,
       target.columnId,
     );
@@ -872,8 +1048,11 @@ export class RetrosService {
 
   async ungroupCards(user: JwtPayload, retroId: string, dto: UngroupCardsDto) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (retro.status !== RetroStatus.grouping) {
-      throw new BadRequestException('Ungrouping only allowed in grouping phase');
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (!caps.allowGrouping) {
+      throw new BadRequestException(
+        'Ungrouping is not allowed in the current phase',
+      );
     }
     await this.requireParticipant(user, retroId);
 
@@ -891,7 +1070,11 @@ export class RetrosService {
       destColumnId = column.id;
     }
 
-    this.assertSameColumnUnlessAllowed(retro, card.columnId, destColumnId);
+    this.assertSameColumnUnlessAllowed(
+      this.groupingRules(retro, caps),
+      card.columnId,
+      destColumnId,
+    );
 
     const ungroupAll = !!dto.ungroupAll && !!card.groupId;
     if (!card.groupId && destColumnId === card.columnId) {
@@ -957,8 +1140,11 @@ export class RetrosService {
 
   async setVote(user: JwtPayload, retroId: string, dto: VoteDto) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (retro.status !== RetroStatus.voting) {
-      throw new BadRequestException('Voting only allowed in voting phase');
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (caps.voting === 'off') {
+      throw new BadRequestException(
+        'Voting is not allowed in the current phase',
+      );
     }
     if (!dto.cardId && !dto.groupId) {
       throw new BadRequestException('cardId or groupId required');
@@ -967,8 +1153,15 @@ export class RetrosService {
       throw new BadRequestException('Provide either cardId or groupId');
     }
 
+    const maxVotesPerCard = this.effectiveMaxVotesPerCard(retro, caps);
+    if (caps.voting === 'single' && dto.count > 1) {
+      throw new BadRequestException(
+        'Only one vote per card/group in this phase',
+      );
+    }
+
     const participant = await this.requireParticipant(user, retroId);
-    await this.collapseGroupedCardVotes(retroId, retro.maxVotesPerCard);
+    await this.collapseGroupedCardVotes(retroId, maxVotesPerCard);
 
     if (dto.cardId) {
       const card = await this.prisma.card.findFirst({
@@ -989,9 +1182,9 @@ export class RetrosService {
       if (!group) throw new NotFoundException('Group not found');
     }
 
-    if (dto.count > retro.maxVotesPerCard) {
+    if (dto.count > maxVotesPerCard) {
       throw new BadRequestException(
-        `Max ${retro.maxVotesPerCard} votes per card/group`,
+        `Max ${maxVotesPerCard} votes per card/group`,
       );
     }
 
@@ -1046,10 +1239,7 @@ export class RetrosService {
       where: { retroId, participantId: participant.id },
     });
     const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
-    if (
-      myVoteTotal >= retro.votesPerParticipant &&
-      !participant.votesReady
-    ) {
+    if (myVoteTotal >= retro.votesPerParticipant && !participant.votesReady) {
       await this.prisma.participant.update({
         where: { id: participant.id },
         data: { votesReady: true },
@@ -1063,6 +1253,145 @@ export class RetrosService {
     const votes = await this.prisma.vote.findMany({ where: { retroId } });
     this.events.emit(retroId, 'votes-updated', { votes });
     return { votes };
+  }
+
+  /** Toggle an emoji reaction on a card for the current participant. */
+  async toggleReaction(user: JwtPayload, retroId: string, dto: ReactionDto) {
+    const retro = await this.getRetroOrThrow(retroId);
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (!caps.allowReactions) {
+      throw new BadRequestException(
+        'Reactions are not allowed in the current phase',
+      );
+    }
+    const emoji = dto.emoji.trim();
+    if (!caps.reactionEmojis.includes(emoji)) {
+      throw new BadRequestException('Emoji not allowed in this phase');
+    }
+
+    const participant = await this.requireParticipant(user, retroId);
+    const card = await this.prisma.card.findFirst({
+      where: { id: dto.cardId, retroId },
+    });
+    if (!card) throw new NotFoundException('Card not found');
+
+    const existing = await this.prisma.cardReaction.findUnique({
+      where: {
+        cardId_participantId_emoji: {
+          cardId: card.id,
+          participantId: participant.id,
+          emoji,
+        },
+      },
+    });
+
+    let active: boolean;
+    if (existing) {
+      await this.prisma.cardReaction.delete({ where: { id: existing.id } });
+      active = false;
+    } else {
+      await this.prisma.cardReaction.create({
+        data: {
+          retroId,
+          cardId: card.id,
+          participantId: participant.id,
+          emoji,
+        },
+      });
+      active = true;
+    }
+
+    const reactions = await this.prisma.cardReaction.findMany({
+      where: { cardId: card.id },
+    });
+    const payload = { cardId: card.id, reactions };
+    this.events.emit(retroId, 'card-reaction', payload);
+    return { ...payload, active };
+  }
+
+  /** Set (or clear with `value: null`) the participant's traffic-light vote on an item. */
+  async setSemaforoVote(
+    user: JwtPayload,
+    retroId: string,
+    dto: SemaforoVoteDto,
+  ) {
+    const retro = await this.getRetroOrThrow(retroId);
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (caps.closed || caps.kind !== 'semaforo') {
+      throw new BadRequestException(
+        'Semaforo voting is only available in the semaforo phase',
+      );
+    }
+
+    const participant = await this.requireParticipant(user, retroId);
+    const item = await this.prisma.retroSemaforoItem.findFirst({
+      where: { id: dto.itemId, retroId },
+    });
+    if (!item) throw new NotFoundException('Semaforo item not found');
+
+    const key = {
+      itemId_participantId: {
+        itemId: item.id,
+        participantId: participant.id,
+      },
+    };
+
+    if (dto.value === null || dto.value === undefined) {
+      await this.prisma.semaforoVote.deleteMany({
+        where: { itemId: item.id, participantId: participant.id },
+      });
+    } else {
+      await this.prisma.semaforoVote.upsert({
+        where: key,
+        create: {
+          retroId,
+          itemId: item.id,
+          participantId: participant.id,
+          value: dto.value,
+        },
+        update: { value: dto.value },
+      });
+    }
+
+    const payload = {
+      itemId: item.id,
+      participantId: participant.id,
+      value: dto.value ?? null,
+    };
+    this.events.emit(retroId, 'semaforo-vote', payload);
+    return payload;
+  }
+
+  /** Facilitator-only note on a semaforo item, written during the review phase. */
+  async setSemaforoNote(
+    user: JwtPayload,
+    retroId: string,
+    itemId: string,
+    note: string | null,
+  ) {
+    await this.assertFacilitatorOfRetro(user, retroId);
+    const retro = await this.getRetroOrThrow(retroId);
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (caps.kind !== 'semaforo_review') {
+      throw new BadRequestException(
+        'Semaforo notes can only be edited in the review phase',
+      );
+    }
+
+    const item = await this.prisma.retroSemaforoItem.findFirst({
+      where: { id: itemId, retroId },
+    });
+    if (!item) throw new NotFoundException('Semaforo item not found');
+
+    const trimmed = note?.trim() || null;
+    const updated = await this.prisma.retroSemaforoItem.update({
+      where: { id: item.id },
+      data: { note: trimmed },
+    });
+
+    const payload = { itemId: updated.id, note: updated.note };
+    this.events.emit(retroId, 'semaforo-note', payload);
+    return payload;
   }
 
   async startTimer(user: JwtPayload, retroId: string, dto: TimerDto) {
@@ -1199,7 +1528,8 @@ export class RetrosService {
 
   async submitRoti(user: JwtPayload, retroId: string, dto: RotiDto) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (retro.status !== RetroStatus.roti) {
+    const { caps } = await this.currentPhaseCaps(retro);
+    if (caps.closed || caps.kind !== 'roti') {
       throw new BadRequestException('ROTI only allowed in roti phase');
     }
     const participant = await this.requireParticipant(user, retroId);
@@ -1247,11 +1577,13 @@ export class RetrosService {
     dto: CreateActionFromRetroDto,
   ) {
     const retro = await this.getRetroOrThrow(retroId);
-    if (
-      retro.status !== RetroStatus.actions &&
-      retro.status !== RetroStatus.roti &&
-      retro.status !== RetroStatus.closed
-    ) {
+    const { caps } = await this.currentPhaseCaps(retro);
+    const actionsAllowed =
+      caps.allowActionItems ||
+      caps.kind === 'action_plan' ||
+      caps.kind === 'semaforo_review' ||
+      caps.closed;
+    if (!actionsAllowed) {
       throw new BadRequestException('Actions not available in this phase');
     }
     await this.requireParticipant(user, retroId);
@@ -1297,11 +1629,7 @@ export class RetrosService {
     return payload;
   }
 
-  private async getBoard(
-    retroId: string,
-    user: JwtPayload,
-    forReport = false,
-  ) {
+  private async getBoard(retroId: string, user: JwtPayload, forReport = false) {
     await this.collapseGroupedCardVotes(retroId);
     const retro = await this.prisma.retrospective.findUnique({
       where: { id: retroId },
@@ -1311,58 +1639,117 @@ export class RetrosService {
 
     const participant = await this.findParticipant(user, retroId);
     const facilitator = await this.isFacilitator(user, retroId);
-    // Hide others' cards in comments, except for the team facilitator.
-    const hideOthers =
-      !forReport && retro.status === RetroStatus.comments && !facilitator;
 
-    const cards = retro.cards.map((card) => {
-      const authorName = card.isAnonymous
-        ? 'Anonymous'
-        : (card.author.guestName ??
-          card.author.user?.name ??
-          'Participant');
-      const authorAvatarId = card.isAnonymous
-        ? null
-        : resolveParticipantAvatar(card.author);
+    const currentPhase =
+      retro.phases.find((p) => p.id === retro.currentPhaseId) ??
+      retro.phases[0] ??
+      null;
+    const caps = currentPhase ? this.effectiveCaps(retro, currentPhase) : null;
+    const closed = !!retro.closedAt;
 
-      const isOwn = !!participant && card.authorId === participant.id;
-      if (hideOthers && !isOwn) {
+    const hiddenColumnIds = new Set(
+      currentPhase?.hiddenColumns.map((h) => h.columnId) ?? [],
+    );
+    // Facilitator (and the report) sees every column; participants only the visible ones.
+    const filterHidden = !forReport && !facilitator && hiddenColumnIds.size > 0;
+    const columns = filterHidden
+      ? retro.columns.filter((c) => !hiddenColumnIds.has(c.id))
+      : retro.columns;
+
+    const participantById = new Map(retro.participants.map((p) => [p.id, p]));
+    const readyForReveal = (authorId: string) => {
+      const author = participantById.get(authorId);
+      if (!author || !caps) return false;
+      if (caps.kind === 'semaforo') return author.semaforoReady;
+      if (caps.voting !== 'off') return author.votesReady;
+      return author.commentsReady;
+    };
+
+    // Others' cards may be visible, blurred or hidden depending on the phase.
+    const othersVisibility =
+      forReport || facilitator || !caps ? 'visible' : caps.othersVisibility;
+    const revealOnReady = !!caps?.revealOnReady;
+    const forceAnonymous = !forReport && !!caps?.anonymousCards;
+    const hideCounts =
+      !forReport && !facilitator && !!caps?.hideVoteCounts && !closed;
+
+    const onlyMine = <T extends { participantId: string }>(list: T[]) =>
+      participant ? list.filter((v) => v.participantId === participant.id) : [];
+
+    const cards = retro.cards
+      .filter((card) => !filterHidden || !hiddenColumnIds.has(card.columnId))
+      .map((card) => {
+        const isOwn = !!participant && card.authorId === participant.id;
+        const anonymous = card.isAnonymous || (forceAnonymous && !isOwn);
+        const authorName = anonymous
+          ? 'Anonymous'
+          : (card.author.guestName ?? card.author.user?.name ?? 'Participant');
+        const authorAvatarId = anonymous
+          ? null
+          : resolveParticipantAvatar(card.author);
+
+        const votes = hideCounts ? onlyMine(card.votes) : card.votes;
+        const reactions = hideCounts
+          ? onlyMine(card.reactions)
+          : card.reactions;
+
+        const concealed =
+          othersVisibility !== 'visible' &&
+          !isOwn &&
+          !(revealOnReady && readyForReveal(card.authorId));
+
+        if (concealed) {
+          return {
+            ...card,
+            votes,
+            reactions,
+            content: '•••••',
+            imageUrl: null,
+            hidden: othersVisibility === 'hidden',
+            blurred: othersVisibility === 'blurred',
+            authorName: anonymous ? 'Anonymous' : 'Hidden',
+            authorAvatarId: null,
+          };
+        }
+
         return {
           ...card,
-          content: '•••••',
-          imageUrl: null,
-          hidden: true,
-          authorName: card.isAnonymous ? 'Anonymous' : 'Hidden',
-          authorAvatarId: null,
+          votes,
+          reactions,
+          hidden: false,
+          blurred: false,
+          authorName,
+          authorAvatarId,
         };
-      }
+      });
 
-      return {
-        ...card,
-        hidden: false,
-        authorName,
-        authorAvatarId,
-      };
-    });
+    const groups = hideCounts
+      ? retro.groups.map((g) => ({ ...g, votes: onlyMine(g.votes) }))
+      : retro.groups;
+    const votes = hideCounts ? onlyMine(retro.votes) : retro.votes;
+    const reactions = hideCounts ? onlyMine(retro.reactions) : retro.reactions;
 
     const groupedCardIds = new Set(
       retro.cards.filter((c) => c.groupId).map((c) => c.id),
     );
     const myCommentCount = participant
-      ? cards.filter((c) => c.authorId === participant.id).length
+      ? retro.cards.filter((c) => c.authorId === participant.id).length
       : 0;
     const myVotes = participant
       ? retro.votes.filter((v) => v.participantId === participant.id)
       : [];
     const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
 
+    const participantName = (p: (typeof retro.participants)[number]) =>
+      p.guestName ?? p.user?.name ?? (p.isGuest ? 'Invitado' : 'Participante');
+
     const commentProgress = retro.participants.map((p) => {
-      const commentCount = retro.cards.filter((c) => c.authorId === p.id).length;
-      const name =
-        p.guestName ?? p.user?.name ?? (p.isGuest ? 'Invitado' : 'Participante');
+      const commentCount = retro.cards.filter(
+        (c) => c.authorId === p.id,
+      ).length;
       return {
         participantId: p.id,
-        name,
+        name: participantName(p),
         avatarId: resolveParticipantAvatar(p),
         ownerId: p.user?.id ?? p.id,
         commentCount,
@@ -1376,11 +1763,9 @@ export class RetrosService {
         retro.votes.filter((v) => v.participantId === p.id),
         groupedCardIds,
       );
-      const name =
-        p.guestName ?? p.user?.name ?? (p.isGuest ? 'Invitado' : 'Participante');
       return {
         participantId: p.id,
-        name,
+        name: participantName(p),
         avatarId: resolveParticipantAvatar(p),
         ownerId: p.user?.id ?? p.id,
         voteCount,
@@ -1397,8 +1782,49 @@ export class RetrosService {
     const votesCapacity =
       voteProgressParticipants.length * retro.votesPerParticipant;
 
+    const semaforoProgressParticipants = retro.participants.map((p) => ({
+      participantId: p.id,
+      name: participantName(p),
+      avatarId: resolveParticipantAvatar(p),
+      ownerId: p.user?.id ?? p.id,
+      voteCount: retro.semaforoVotes.filter((v) => v.participantId === p.id)
+        .length,
+      isReady: p.semaforoReady,
+    }));
+    const semaforoReadyCount = semaforoProgressParticipants.filter(
+      (p) => p.isReady,
+    ).length;
+
+    const semaforoItems = retro.semaforoItems.map((item) => {
+      const itemVotes = retro.semaforoVotes
+        .filter((v) => v.itemId === item.id)
+        .map((v) => ({
+          participantId: v.participantId,
+          value: v.value,
+        }));
+      const summary = { red: 0, yellow: 0, green: 0 };
+      for (const v of itemVotes) summary[v.value] += 1;
+      return { ...item, votes: itemVotes, summary };
+    });
+
+    const phases = retro.phases.map(({ hiddenColumns, ...phase }) => ({
+      ...phase,
+      hiddenColumnIds: hiddenColumns.map((h) => h.columnId),
+    }));
+
     return {
       ...retro,
+      closed,
+      currentPhaseId: currentPhase?.id ?? null,
+      currentPhase: currentPhase
+        ? {
+            ...phases.find((p) => p.id === currentPhase.id)!,
+            capabilities: caps,
+          }
+        : null,
+      phases,
+      columns,
+      voteCountsHidden: hideCounts,
       participants: retro.participants.map((p) => ({
         ...p,
         avatarId: resolveParticipantAvatar(p),
@@ -1411,12 +1837,18 @@ export class RetrosService {
       })),
       actionItems: retro.actionItems.map(serializeActionItem),
       cards,
+      groups,
+      votes,
+      reactions,
+      semaforoItems,
+      semaforoVotes: hideCounts
+        ? onlyMine(retro.semaforoVotes)
+        : retro.semaforoVotes,
       commentProgress: {
         written: readyCount,
         total: commentProgress.length,
         allDone:
-          commentProgress.length > 0 &&
-          readyCount === commentProgress.length,
+          commentProgress.length > 0 && readyCount === commentProgress.length,
         participants: commentProgress,
       },
       voteProgress: {
@@ -1429,6 +1861,15 @@ export class RetrosService {
         votesCapacity,
         participants: voteProgressParticipants,
       },
+      semaforoProgress: {
+        ready: semaforoReadyCount,
+        total: semaforoProgressParticipants.length,
+        allDone:
+          semaforoProgressParticipants.length > 0 &&
+          semaforoReadyCount === semaforoProgressParticipants.length,
+        itemCount: retro.semaforoItems.length,
+        participants: semaforoProgressParticipants,
+      },
       me: {
         participantId: participant?.id,
         myCommentCount,
@@ -1436,10 +1877,120 @@ export class RetrosService {
         votesRemaining: Math.max(0, retro.votesPerParticipant - myVoteTotal),
         commentsReady: participant?.commentsReady ?? false,
         votesReady: participant?.votesReady ?? false,
+        semaforoReady: participant?.semaforoReady ?? false,
         isFacilitator: facilitator,
       },
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // Phase helpers
+  // ---------------------------------------------------------------------------
+
+  /** Current RetroPhase for a retro: by `currentPhaseId`, else the first one by position. */
+  private async getCurrentPhase(retro: {
+    id: string;
+    currentPhaseId: string | null;
+  }): Promise<RetroPhaseRecord> {
+    if (retro.currentPhaseId) {
+      const phase = await this.prisma.retroPhase.findFirst({
+        where: { id: retro.currentPhaseId, retroId: retro.id },
+        include: { hiddenColumns: true },
+      });
+      if (phase) return phase;
+    }
+    const first = await this.prisma.retroPhase.findFirst({
+      where: { retroId: retro.id },
+      orderBy: { position: 'asc' },
+      include: { hiddenColumns: true },
+    });
+    if (!first) {
+      throw new BadRequestException('Retrospective has no phases');
+    }
+    return first;
+  }
+
+  private async currentPhaseCaps(retro: RetroRecord) {
+    const phase = await this.getCurrentPhase(retro);
+    return { phase, caps: this.effectiveCaps(retro, phase) };
+  }
+
+  /**
+   * Capabilities of a phase snapshot. When the retro is closed every mutation
+   * is turned off except creating action items (matching the legacy `closed` status).
+   */
+  private effectiveCaps(
+    retro: { closedAt: Date | null },
+    phase: RetroPhaseRecord,
+  ): EffectiveCaps {
+    const caps = phaseCapabilities(phase);
+    const closed = !!retro.closedAt;
+    if (!closed) {
+      return { ...caps, kind: phase.kind, closed };
+    }
+    return {
+      ...caps,
+      kind: phase.kind,
+      closed,
+      allowCreateCards: false,
+      allowEditOwnCards: false,
+      allowGrouping: false,
+      allowCrossColumnGrouping: false,
+      voting: 'off',
+      allowReactions: false,
+      allowPresentation: false,
+      showReadyCheck: false,
+      allowActionItems: true,
+      // Nothing to conceal once the retro is over.
+      othersVisibility: 'visible',
+      revealOnReady: false,
+      hideVoteCounts: false,
+    };
+  }
+
+  private assertCanEditOwnCards(caps: EffectiveCaps) {
+    if (!caps.allowCreateCards || !caps.allowEditOwnCards) {
+      throw new BadRequestException(
+        'Cards cannot be edited in the current phase',
+      );
+    }
+  }
+
+  /** Where-clause counting the cards that consume a participant's quota. */
+  private cardQuotaWhere(
+    retroId: string,
+    participantId: string,
+    phase: RetroPhaseRecord,
+    caps: EffectiveCaps,
+  ): Prisma.CardWhereInput {
+    // A per-phase limit counts only cards created in this phase; the retro-wide
+    // limit counts every card of the participant.
+    if (caps.maxCardsPerParticipant != null) {
+      return { retroId, authorId: participantId, createdInPhaseId: phase.id };
+    }
+    return { retroId, authorId: participantId };
+  }
+
+  private effectiveMaxVotesPerCard(
+    retro: { maxVotesPerCard: number },
+    caps: EffectiveCaps,
+  ) {
+    return caps.voting === 'single' ? 1 : retro.maxVotesPerCard;
+  }
+
+  private groupingRules(
+    retro: { allowCrossColumnGrouping: boolean },
+    caps: EffectiveCaps,
+  ) {
+    return {
+      allowCrossColumnGrouping:
+        retro.allowCrossColumnGrouping || caps.allowCrossColumnGrouping,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Access helpers
+  // ---------------------------------------------------------------------------
 
   private async ensureMemberParticipant(
     userId: string,
@@ -1476,7 +2027,9 @@ export class RetrosService {
     const retro = await this.getRetroOrThrow(retroId);
     if (user.type === 'guest') {
       if (user.retroId !== retroId) {
-        throw new ForbiddenException('Guest token does not match retrospective');
+        throw new ForbiddenException(
+          'Guest token does not match retrospective',
+        );
       }
       return;
     }
@@ -1541,17 +2094,21 @@ export class RetrosService {
   }
 
   private assertSameColumnUnlessAllowed(
-    retro: { allowCrossColumnGrouping: boolean },
+    rules: { allowCrossColumnGrouping: boolean },
     sourceColumnId: string,
     destColumnId: string,
   ) {
-    if (retro.allowCrossColumnGrouping) return;
+    if (rules.allowCrossColumnGrouping) return;
     if (sourceColumnId !== destColumnId) {
       throw new BadRequestException(
         'Solo se pueden agrupar tarjetas de la misma columna',
       );
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Vote helpers
+  // ---------------------------------------------------------------------------
 
   private quotaVoteTotal(
     votes: { cardId: string | null; count: number }[],
@@ -1582,9 +2139,7 @@ export class RetrosService {
     if (cap == null) return false;
     const groupIds = [
       ...new Set(
-        stale
-          .map((v) => v.card?.groupId)
-          .filter((id): id is string => !!id),
+        stale.map((v) => v.card?.groupId).filter((id): id is string => !!id),
       ),
     ];
     await this.prisma.$transaction(async (tx) => {
@@ -1778,14 +2333,7 @@ export class RetrosService {
   private async emitCardUpdated(retroId: string, cardId: string) {
     const updated = await this.prisma.card.findFirst({
       where: { id: cardId, retroId },
-      include: {
-        author: {
-          include: {
-            user: { select: userPublicSelect },
-          },
-        },
-        votes: true,
-      },
+      include: cardInclude,
     });
     if (updated) {
       this.events.emit(retroId, 'card-updated', updated);

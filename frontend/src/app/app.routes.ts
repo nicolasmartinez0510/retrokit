@@ -69,6 +69,28 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'phases',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./pages/phases/phases.page').then((m) => m.PhasesPage),
+  },
+  {
+    path: 'phases/new',
+    canActivate: [authGuard, templateEditorGuard],
+    loadComponent: () =>
+      import('./pages/phases/phase-editor.page').then(
+        (m) => m.PhaseEditorPage,
+      ),
+  },
+  {
+    path: 'phases/:id',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./pages/phases/phase-editor.page').then(
+        (m) => m.PhaseEditorPage,
+      ),
+  },
+  {
     path: 'teams/:id',
     canActivate: [authGuard],
     loadComponent: () =>

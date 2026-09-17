@@ -4,8 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Phase, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  SemaforoItemInputDto,
+  TemplatePhaseInputDto,
+} from '../phases/dto/phases.dto';
+import {
+  DEFAULT_CLASSIC_PHASE_IDS,
+  DEFAULT_SEMAFORO_ITEMS,
+  PhaseKind,
+} from '../retros/phase-rules';
 import { TeamsService } from '../teams/teams.service';
 import {
   isStagingPublicUrl,
@@ -19,11 +28,25 @@ import {
 
 const columnInclude = { orderBy: { position: 'asc' as const } };
 
+const phaseInclude = {
+  orderBy: { position: 'asc' as const },
+  include: {
+    phase: true,
+    hiddenColumns: { select: { columnId: true } },
+  },
+} as const;
+
+const semaforoInclude = { orderBy: { position: 'asc' as const } };
+
 const createdBySelect = {
   id: true,
   name: true,
   email: true,
 } as const;
+
+const SEMAFORO_KINDS: PhaseKind[] = ['semaforo', 'semaforo_review'];
+
+type PrismaTx = Prisma.TransactionClient;
 
 @Injectable()
 export class TemplatesService {
@@ -39,24 +62,19 @@ export class TemplatesService {
       ? {}
       : { OR: [{ isGlobal: true }, { createdById: userId }] };
 
-    return this.prisma.template.findMany({
+    const rows = await this.prisma.template.findMany({
       where,
-      include: {
-        columns: columnInclude,
-        ...(admin ? { createdBy: { select: createdBySelect } } : {}),
-      },
+      include: this.templateInclude(admin),
       orderBy: [{ isGlobal: 'desc' }, { name: 'asc' }],
     });
+    return rows.map((t) => this.serializeTemplate(t));
   }
 
   async getOne(id: string, userId: string) {
     const admin = await this.teams.isAdmin(userId);
     const template = await this.prisma.template.findUnique({
       where: { id },
-      include: {
-        columns: columnInclude,
-        ...(admin ? { createdBy: { select: createdBySelect } } : {}),
-      },
+      include: this.templateInclude(admin),
     });
     if (!template) throw new NotFoundException('Plantilla no encontrada');
     if (
@@ -66,7 +84,7 @@ export class TemplatesService {
     ) {
       throw new NotFoundException('Plantilla no encontrada');
     }
-    return template;
+    return this.serializeTemplate(template);
   }
 
   async create(userId: string, dto: CreateTemplateDto) {
@@ -77,24 +95,48 @@ export class TemplatesService {
     this.assertValidColumns(dto.columns);
     await this.assertStagingAssets(userId, dto);
 
-    const created = await this.prisma.template.create({
-      data: {
-        name: dto.name.trim(),
-        description: dto.description?.trim() || null,
-        maxCommentsPerParticipant:
-          dto.maxCommentsPerParticipant !== undefined
-            ? dto.maxCommentsPerParticipant
-            : 3,
-        votesPerParticipant: dto.votesPerParticipant ?? 5,
-        maxVotesPerCard: dto.maxVotesPerCard ?? 2,
-        backgroundColor: dto.backgroundColor?.trim() || null,
-        isGlobal: admin,
-        createdById: userId,
-        columns: {
-          create: dto.columns.map((c, i) => this.columnData(c, i)),
+    const created = await this.prisma.$transaction(async (tx) => {
+      const template = await tx.template.create({
+        data: {
+          name: dto.name.trim(),
+          description: dto.description?.trim() || null,
+          maxCommentsPerParticipant:
+            dto.maxCommentsPerParticipant !== undefined
+              ? dto.maxCommentsPerParticipant
+              : 3,
+          votesPerParticipant: dto.votesPerParticipant ?? 5,
+          maxVotesPerCard: dto.maxVotesPerCard ?? 2,
+          backgroundColor: dto.backgroundColor?.trim() || null,
+          isGlobal: admin,
+          createdById: userId,
+          columns: {
+            create: dto.columns.map((c, i) => this.columnData(c, i)),
+          },
         },
-      },
-      include: { columns: columnInclude },
+        include: { columns: columnInclude },
+      });
+
+      const columnIds = template.columns.map((c) => c.id);
+      if (dto.phases?.length) {
+        await this.createPhasesFromDto(
+          tx,
+          userId,
+          admin,
+          template.id,
+          columnIds,
+          dto.phases,
+        );
+      } else {
+        await this.seedDefaultPhases(tx, template.id);
+      }
+
+      await this.syncSemaforoItemsOnCreate(
+        tx,
+        template.id,
+        dto.semaforoItems,
+      );
+
+      return template;
     });
 
     return this.applyStagingAssets(userId, created.id, dto);
@@ -176,10 +218,28 @@ export class TemplatesService {
         }
       }
 
-      return tx.template.findUniqueOrThrow({
-        where: { id },
-        include: { columns: columnInclude },
+      const columns = await tx.templateColumn.findMany({
+        where: { templateId: id },
+        orderBy: { position: 'asc' },
       });
+      const columnIds = columns.map((c) => c.id);
+
+      if (dto.phases) {
+        await tx.templatePhase.deleteMany({ where: { templateId: id } });
+        await this.createPhasesFromDto(
+          tx,
+          userId,
+          await this.teams.isAdmin(userId),
+          id,
+          columnIds,
+          dto.phases,
+        );
+      }
+
+      if (dto.semaforoItems) {
+        await tx.templateSemaforoItem.deleteMany({ where: { templateId: id } });
+        await this.createSemaforoItems(tx, id, dto.semaforoItems);
+      }
     });
 
     for (const url of removedLogoUrls) {
@@ -211,25 +271,23 @@ export class TemplatesService {
     await this.assertCanManage(userId, id);
     const existing = await this.getOne(id, userId);
     const url = await this.uploads.saveTemplateBackground(id, file);
-    const updated = await this.prisma.template.update({
+    await this.prisma.template.update({
       where: { id },
       data: { backgroundImageUrl: url },
-      include: { columns: columnInclude },
     });
     await this.deleteFileIfUnreferenced(existing.backgroundImageUrl);
-    return updated;
+    return this.getOne(id, userId);
   }
 
   async clearBackground(userId: string, id: string) {
     await this.assertCanManage(userId, id);
     const existing = await this.getOne(id, userId);
-    const updated = await this.prisma.template.update({
+    await this.prisma.template.update({
       where: { id },
       data: { backgroundImageUrl: null },
-      include: { columns: columnInclude },
     });
     await this.deleteFileIfUnreferenced(existing.backgroundImageUrl);
-    return updated;
+    return this.getOne(id, userId);
   }
 
   async uploadColumnLogo(
@@ -294,6 +352,183 @@ export class TemplatesService {
     await this.assertCanCreateTemplates(userId);
     await this.uploads.deleteStagingSession(userId, sessionId);
     return { deleted: true };
+  }
+
+  private templateInclude(admin: boolean) {
+    return {
+      columns: columnInclude,
+      phases: phaseInclude,
+      semaforoItems: semaforoInclude,
+      ...(admin ? { createdBy: { select: createdBySelect } } : {}),
+    };
+  }
+
+  private serializeTemplate<
+    T extends {
+      phases?: Array<{
+        id: string;
+        phaseId: string;
+        position: number;
+        phase: Phase;
+        hiddenColumns?: Array<{ columnId: string }>;
+      }>;
+    },
+  >(template: T) {
+    return {
+      ...template,
+      phases: (template.phases ?? []).map((tp) => ({
+        id: tp.id,
+        phaseId: tp.phaseId,
+        position: tp.position,
+        hiddenColumnIds: (tp.hiddenColumns ?? []).map((h) => h.columnId),
+        phase: tp.phase,
+      })),
+    };
+  }
+
+  private async createPhasesFromDto(
+    tx: PrismaTx,
+    userId: string,
+    admin: boolean,
+    templateId: string,
+    columnIds: string[],
+    phases: TemplatePhaseInputDto[],
+  ) {
+    if (!phases.length) {
+      throw new BadRequestException('La plantilla necesita al menos una fase');
+    }
+
+    const ordered = [...phases].sort((a, b) => a.position - b.position);
+    const phaseIds = ordered.map((p) => p.phaseId);
+    if (new Set(phaseIds).size !== phaseIds.length) {
+      throw new BadRequestException('No podés repetir la misma fase');
+    }
+
+    const columnIdSet = new Set(columnIds);
+    if (!columnIds.length) {
+      throw new BadRequestException('La plantilla necesita al menos una columna');
+    }
+
+    for (const entry of ordered) {
+      const hidden = entry.hiddenColumnIds ?? [];
+      const validHidden = hidden.filter((id) => columnIdSet.has(id));
+      if (validHidden.length !== hidden.length) {
+        throw new BadRequestException(
+          'Hay columnas ocultas que no pertenecen a la plantilla',
+        );
+      }
+      if (validHidden.length >= columnIds.length) {
+        throw new BadRequestException(
+          'Cada fase debe dejar al menos una columna visible',
+        );
+      }
+    }
+
+    const accessible = await tx.phase.findMany({
+      where: {
+        id: { in: phaseIds },
+        ...(admin
+          ? {}
+          : {
+              OR: [
+                { isGlobal: true },
+                { isSystem: true },
+                { createdById: userId },
+              ],
+            }),
+      },
+    });
+    const byId = new Map(accessible.map((p) => [p.id, p]));
+    const missing = phaseIds.filter((id) => !byId.has(id));
+    if (missing.length) {
+      throw new NotFoundException(
+        `Fase no encontrada: ${missing.join(', ')}`,
+      );
+    }
+
+    for (const entry of ordered) {
+      const hidden = (entry.hiddenColumnIds ?? []).filter((id) =>
+        columnIdSet.has(id),
+      );
+      await tx.templatePhase.create({
+        data: {
+          templateId,
+          phaseId: entry.phaseId,
+          position: entry.position,
+          hiddenColumns: {
+            create: hidden.map((columnId) => ({ columnId })),
+          },
+        },
+      });
+    }
+  }
+
+  private async seedDefaultPhases(tx: PrismaTx, templateId: string) {
+    const defaults = await tx.phase.findMany({
+      where: { id: { in: [...DEFAULT_CLASSIC_PHASE_IDS] } },
+    });
+    const byId = new Map(defaults.map((p) => [p.id, p]));
+    let position = 0;
+    for (const phaseId of DEFAULT_CLASSIC_PHASE_IDS) {
+      if (!byId.has(phaseId)) continue;
+      await tx.templatePhase.create({
+        data: { templateId, phaseId, position },
+      });
+      position += 1;
+    }
+    if (position === 0) {
+      throw new BadRequestException(
+        'No hay fases disponibles; ejecutá las migraciones del sistema',
+      );
+    }
+  }
+
+  private async syncSemaforoItemsOnCreate(
+    tx: PrismaTx,
+    templateId: string,
+    semaforoItems: SemaforoItemInputDto[] | undefined,
+  ) {
+    if (semaforoItems?.length) {
+      await this.createSemaforoItems(tx, templateId, semaforoItems);
+      return;
+    }
+
+    const templatePhases = await tx.templatePhase.findMany({
+      where: { templateId },
+      include: { phase: true },
+    });
+    const hasSemaforo = templatePhases.some((tp) =>
+      SEMAFORO_KINDS.includes(tp.phase.kind as PhaseKind),
+    );
+    if (!hasSemaforo) return;
+
+    await this.createSemaforoItems(
+      tx,
+      templateId,
+      DEFAULT_SEMAFORO_ITEMS.map((item, position) => ({
+        title: item.title,
+        description: item.description,
+        position,
+      })),
+    );
+  }
+
+  private async createSemaforoItems(
+    tx: PrismaTx,
+    templateId: string,
+    items: SemaforoItemInputDto[],
+  ) {
+    const ordered = [...items].sort((a, b) => a.position - b.position);
+    for (const item of ordered) {
+      await tx.templateSemaforoItem.create({
+        data: {
+          templateId,
+          title: item.title.trim(),
+          description: item.description?.trim() || null,
+          position: item.position,
+        },
+      });
+    }
   }
 
   private async assertCanCreateTemplates(userId: string) {

@@ -1,23 +1,36 @@
-import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import {
+  Component,
+  HostListener,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { parseAvatarChanged } from '../../core/avatars';
 import { httpErrorMessage } from '../../core/http-error';
+import { Phase, RetroSummary, TeamDetail, Template } from '../../core/models';
 import {
-  PHASE_LABELS,
-  RetroSummary,
-  TeamDetail,
-  Template,
-} from '../../core/models';
+  DEFAULT_CLASSIC_PHASE_IDS,
+  DEFAULT_SEMAFORO_ITEMS,
+} from '../../core/phase-rules';
 import { SocketService } from '../../core/socket.service';
 import { ToastService } from '../../core/toast.service';
+import {
+  PhasePillItem,
+  PhasePillsComponent,
+} from '../../shared/phase-pills.component';
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
+
+const MAX_SEMAFORO_ITEMS = 8;
 
 @Component({
   selector: 'app-team-page',
-  imports: [FormsModule, RouterLink, UserAvatarComponent],
+  imports: [FormsModule, RouterLink, UserAvatarComponent, PhasePillsComponent],
   template: `
     <div class="page">
       @if (team(); as t) {
@@ -112,7 +125,7 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                     }
                   </a>
                   <div class="retro-actions">
-                    <span class="badge">{{ phaseLabel(r.status) }}</span>
+                    <span class="badge">{{ retroPhaseLabel(r) }}</span>
                     @if (isFacilitator()) {
                       <button
                         type="button"
@@ -180,22 +193,186 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                 }
               </select>
               @if (selectedTemplate(); as tpl) {
-                <p class="template-hint">{{ tpl.description }}</p>
-                <ul class="template-cols">
-                  @for (col of tpl.columns; track col.id) {
-                    <li>
-                      @if (col.logoUrl) {
-                        <img class="col-logo-sm" [src]="col.logoUrl" alt="" />
-                      }
-                      <strong>{{ col.icon }} {{ col.title }}</strong>
-                      @if (col.description) {
-                        — {{ col.description }}
-                      }
-                    </li>
-                  }
-                </ul>
+                @if (tpl.description) {
+                  <p class="template-hint">{{ tpl.description }}</p>
+                }
+                <button
+                  type="button"
+                  class="disclosure"
+                  [attr.aria-expanded]="showTemplateCols()"
+                  (click)="showTemplateCols.set(!showTemplateCols())"
+                >
+                  <svg
+                    class="disclosure-chevron"
+                    [class.open]="showTemplateCols()"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                  </svg>
+                  <span>{{ tpl.columns.length }} columnas</span>
+                </button>
+                @if (showTemplateCols()) {
+                  <ul class="template-cols">
+                    @for (col of tpl.columns; track col.id) {
+                      <li>
+                        @if (col.logoUrl) {
+                          <img class="col-logo-sm" [src]="col.logoUrl" alt="" />
+                        }
+                        <strong>{{ col.icon }} {{ col.title }}</strong>
+                        @if (col.description) {
+                          — {{ col.description }}
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
               }
             </div>
+            <div class="field phases-field">
+              <div class="phases-header">
+                <label>Fases</label>
+                <button
+                  type="button"
+                  class="btn-ghost btn-sm"
+                  (click)="restorePhasesFromTemplate()"
+                >
+                  Restaurar de plantilla
+                </button>
+              </div>
+              <app-phase-pills
+                mode="edit"
+                [phases]="pillPhases()"
+                [showAdd]="availablePhases().length > 0"
+                (phasesChange)="onPhasesChange($event)"
+                (remove)="onPhaseRemoved($event)"
+                (addPhase)="showAddPhases.set(!showAddPhases())"
+              />
+              @if (showAddPhases() && availablePhases().length) {
+                <div class="add-phase-chips">
+                  <span class="add-phase-label">Agregar fase:</span>
+                  @for (p of availablePhases(); track p.id) {
+                    <button
+                      type="button"
+                      class="add-phase-chip"
+                      (click)="addRetroPhase(p)"
+                    >
+                      + {{ p.name }}
+                    </button>
+                  }
+                </div>
+              }
+              @if (needsSemaforo()) {
+                <div class="semaforo-section">
+                  <div class="columns-header">
+                    <button
+                      type="button"
+                      class="disclosure"
+                      [attr.aria-expanded]="showSemaforoItems()"
+                      (click)="showSemaforoItems.set(!showSemaforoItems())"
+                    >
+                      <svg
+                        class="disclosure-chevron"
+                        [class.open]="showSemaforoItems()"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                      </svg>
+                      <span
+                        >Ítems del semáforo ({{
+                          retroSemaforoItems().length
+                        }})</span
+                      >
+                    </button>
+                    @if (showSemaforoItems()) {
+                      <button
+                        type="button"
+                        class="btn-secondary btn-sm"
+                        (click)="addSemaforoItem()"
+                        [disabled]="retroSemaforoItems().length >= maxSemaforoItems"
+                      >
+                        <svg class="plus-icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M12 4.5a.75.75 0 0 1 .75.75v6.75h6.75a.75.75 0 0 1 0 1.5h-6.75v6.75a.75.75 0 0 1-1.5 0v-6.75H4.5a.75.75 0 0 1 0-1.5h6.75V5.25A.75.75 0 0 1 12 4.5Z"
+                          />
+                        </svg>
+                        Agregar ítem
+                      </button>
+                    }
+                  </div>
+                @if (showSemaforoItems()) {
+                  <div class="semaforo-editor">
+                    @for (
+                      item of retroSemaforoItems();
+                      track $index;
+                      let i = $index
+                    ) {
+                      <div class="semaforo-row">
+                        <div class="semaforo-head">
+                          <span class="semaforo-head-spacer" aria-hidden="true"></span>
+                          <span class="semaforo-head-label">Título</span>
+                          <span class="semaforo-head-label grow">Pregunta</span>
+                          <span class="semaforo-head-spacer" aria-hidden="true"></span>
+                        </div>
+                        <div class="semaforo-controls">
+                          <span class="semaforo-badge" aria-hidden="true">🚦</span>
+                          <input
+                            [(ngModel)]="item.title"
+                            [name]="'sem-title-' + i"
+                            placeholder="Ej. Comunicación"
+                            maxlength="120"
+                            required
+                            aria-label="Título"
+                          />
+                          <input
+                            class="grow"
+                            [(ngModel)]="item.description"
+                            [name]="'sem-desc-' + i"
+                            placeholder="¿Qué querés que califiquen?"
+                            maxlength="500"
+                            aria-label="Pregunta"
+                          />
+                          <button
+                            type="button"
+                            class="icon-btn trash"
+                            title="Quitar ítem"
+                            aria-label="Quitar ítem"
+                            (click)="removeSemaforoItem(i)"
+                            [disabled]="retroSemaforoItems().length <= 1"
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path
+                                d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                }
+                </div>
+              }
+            </div>
+
+            <button
+              type="button"
+              class="disclosure options-disclosure"
+              [attr.aria-expanded]="showAdvancedOptions()"
+              (click)="showAdvancedOptions.set(!showAdvancedOptions())"
+            >
+              <svg
+                class="disclosure-chevron"
+                [class.open]="showAdvancedOptions()"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+              <span>Opciones</span>
+            </button>
+            @if (showAdvancedOptions()) {
             <div class="settings-grid">
               <div class="field">
                 <label>Máx. comentarios / persona</label>
@@ -222,7 +399,13 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
                   [(ngModel)]="maxVotesPerCard"
                   name="maxVotes"
                   min="1"
+                  [disabled]="hasSingleVotePhase()"
                 />
+                @if (hasSingleVotePhase()) {
+                  <p class="template-hint">
+                    Hay una fase con voto único: máx. 1 voto por tarjeta.
+                  </p>
+                }
               </div>
               <div class="field">
                 <label>Timer por defecto</label>
@@ -249,6 +432,8 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
               Las columnas son temas distintos; activá esto solo si el equipo
               quiere mezclarlas.
             </p>
+            }
+
             @if (error()) {
               <p class="form-error">{{ error() }}</p>
             }
@@ -456,6 +641,214 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
       flex-wrap: wrap;
       gap: 0.65rem;
     }
+    .phases-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .phases-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      label { margin: 0; }
+    }
+    .add-phase-chips {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .add-phase-label {
+      font-size: 0.82rem;
+      color: var(--color-text-muted);
+    }
+    .add-phase-chip {
+      appearance: none;
+      border: 1px dashed var(--color-border);
+      background: transparent;
+      color: var(--color-brand);
+      border-radius: 999px;
+      padding: 0.25rem 0.65rem;
+      font: inherit;
+      font-size: 0.8rem;
+      cursor: pointer;
+      &:hover {
+        background: var(--color-sky-soft);
+        border-color: var(--color-brand);
+      }
+    }
+    .semaforo-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .columns-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .columns-header .btn-secondary.btn-sm {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .plus-icon {
+      width: 1rem;
+      height: 1rem;
+      display: block;
+      fill: currentColor;
+    }
+    .disclosure {
+      appearance: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      width: 100%;
+      margin: 0;
+      padding: 0.55rem 0.75rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-sky-soft);
+      font: inherit;
+      font-size: 0.88rem;
+      font-weight: 650;
+      color: var(--color-text);
+      cursor: pointer;
+      text-align: left;
+      transition:
+        background 0.15s ease,
+        border-color 0.15s ease;
+      &:hover {
+        background: color-mix(in srgb, var(--color-sky-soft) 70%, var(--color-bg));
+        border-color: var(--color-brand);
+      }
+      &[aria-expanded='true'] {
+        border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-border));
+      }
+    }
+    .columns-header .disclosure {
+      width: auto;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .disclosure-chevron {
+      width: 1rem;
+      height: 1rem;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: var(--color-brand);
+      transition: transform 0.15s ease;
+      &.open {
+        transform: rotate(90deg);
+      }
+    }
+    .options-disclosure {
+      margin-top: 0.15rem;
+    }
+    .semaforo-editor {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      align-items: stretch;
+    }
+    .semaforo-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      padding: 0.75rem 0.85rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-bg-muted, var(--color-sky-soft));
+    }
+    .semaforo-head,
+    .semaforo-controls {
+      display: grid;
+      grid-template-columns: 2rem minmax(0, 1fr) minmax(0, 1.5fr) 2rem;
+      gap: 0.65rem;
+      align-items: center;
+    }
+    .semaforo-head-spacer {
+      width: 2rem;
+    }
+    .semaforo-head-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+    }
+    .semaforo-badge {
+      display: grid;
+      place-items: center;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 0.5rem;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      font-size: 0.95rem;
+      line-height: 1;
+    }
+    .semaforo-controls input {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.75rem;
+      background: var(--color-bg);
+      color: var(--color-text);
+      outline: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: border-color 0.15s ease;
+      &:focus {
+        border-color: var(--color-brand);
+      }
+    }
+    .semaforo-controls .icon-btn {
+      width: 2rem;
+      height: 2rem;
+    }
+    @media (max-width: 560px) {
+      .semaforo-head,
+      .semaforo-controls {
+        grid-template-columns: 1fr 2rem;
+      }
+      .semaforo-head-spacer:first-child,
+      .semaforo-badge {
+        display: none;
+      }
+      .semaforo-head-label:not(.grow) {
+        grid-column: 1;
+      }
+      .semaforo-head-label.grow {
+        grid-column: 1;
+        grid-row: 2;
+      }
+      .semaforo-head-spacer:last-child {
+        grid-column: 2;
+        grid-row: 1 / 3;
+      }
+      .semaforo-controls input:first-of-type {
+        grid-column: 1;
+      }
+      .semaforo-controls input.grow {
+        grid-column: 1;
+        grid-row: 2;
+      }
+      .semaforo-controls .icon-btn {
+        grid-column: 2;
+        grid-row: 1 / 3;
+        align-self: center;
+      }
+    }
   `,
 })
 export class TeamPage implements OnInit, OnDestroy {
@@ -468,6 +861,14 @@ export class TeamPage implements OnInit, OnDestroy {
 
   team = signal<TeamDetail | null>(null);
   templates = signal<Template[]>([]);
+  phaseCatalog = signal<Phase[]>([]);
+  retroPhases = signal<{ phaseId: string; phase: Phase }[]>([]);
+  retroSemaforoItems = signal<{ title: string; description: string }[]>([]);
+  showAddPhases = signal(false);
+  showSemaforoItems = signal(false);
+  showTemplateCols = signal(false);
+  showAdvancedOptions = signal(false);
+  readonly maxSemaforoItems = MAX_SEMAFORO_ITEMS;
   title = '';
   templateId = '';
   maxComments: number | null = 3;
@@ -483,7 +884,34 @@ export class TeamPage implements OnInit, OnDestroy {
 
   private readonly maxVisibleParticipants = 6;
 
-  phaseLabel = (s: keyof typeof PHASE_LABELS) => PHASE_LABELS[s];
+  readonly pillPhases = computed<PhasePillItem[]>(() =>
+    this.retroPhases().map((p) => ({
+      id: p.phaseId,
+      name: p.phase.name,
+      icon: p.phase.icon,
+      color: p.phase.color,
+    })),
+  );
+
+  readonly availablePhases = computed(() => {
+    const used = new Set(this.retroPhases().map((p) => p.phaseId));
+    return this.phaseCatalog().filter((p) => !used.has(p.id));
+  });
+
+  readonly needsSemaforo = computed(() =>
+    this.retroPhases().some(
+      (p) => p.phase.kind === 'semaforo' || p.phase.kind === 'semaforo_review',
+    ),
+  );
+
+  readonly hasSingleVotePhase = computed(() =>
+    this.retroPhases().some((p) => p.phase.voting === 'single'),
+  );
+
+  retroPhaseLabel(r: RetroSummary) {
+    if (r.closed || r.closedAt) return 'Cerrada';
+    return r.currentPhaseName || r.currentPhase?.name || '—';
+  }
 
   formatCreated(iso: string) {
     const date = new Date(iso);
@@ -509,6 +937,136 @@ export class TeamPage implements OnInit, OnDestroy {
     this.maxComments = tpl.maxCommentsPerParticipant ?? null;
     this.votesPerParticipant = tpl.votesPerParticipant ?? 5;
     this.maxVotesPerCard = tpl.maxVotesPerCard ?? 2;
+    this.seedPhasesFromTemplate(tpl);
+    this.seedSemaforoFromTemplate(tpl);
+    this.syncMaxVotesFromPhases();
+    this.showAddPhases.set(false);
+  }
+
+  restorePhasesFromTemplate() {
+    const tpl = this.selectedTemplate();
+    if (!tpl) return;
+    this.seedPhasesFromTemplate(tpl);
+    this.seedSemaforoFromTemplate(tpl);
+    this.syncMaxVotesFromPhases();
+    this.showAddPhases.set(false);
+  }
+
+  private seedPhasesFromTemplate(tpl: Template) {
+    if (tpl.phases?.length) {
+      this.retroPhases.set(
+        tpl.phases.map((link) => ({
+          phaseId: link.phaseId,
+          phase: link.phase,
+        })),
+      );
+      return;
+    }
+    const catalog = this.phaseCatalog();
+    const seeded: { phaseId: string; phase: Phase }[] = [];
+    for (const id of DEFAULT_CLASSIC_PHASE_IDS) {
+      const phase = catalog.find((p) => p.id === id);
+      if (phase) seeded.push({ phaseId: id, phase });
+    }
+    this.retroPhases.set(seeded);
+  }
+
+  private seedSemaforoFromTemplate(tpl: Template) {
+    const needs =
+      this.retroPhases().some(
+        (p) => p.phase.kind === 'semaforo' || p.phase.kind === 'semaforo_review',
+      ) ||
+      (tpl.phases ?? []).some(
+        (p) =>
+          p.phase?.kind === 'semaforo' || p.phase?.kind === 'semaforo_review',
+      );
+    if (tpl.semaforoItems?.length) {
+      this.retroSemaforoItems.set(
+        tpl.semaforoItems.map((item) => ({
+          title: item.title,
+          description: item.description || '',
+        })),
+      );
+      this.showSemaforoItems.set(false);
+      return;
+    }
+    if (needs) {
+      this.retroSemaforoItems.set(
+        DEFAULT_SEMAFORO_ITEMS.map((item) => ({
+          title: item.title,
+          description: item.description,
+        })),
+      );
+      this.showSemaforoItems.set(false);
+      return;
+    }
+    this.retroSemaforoItems.set([]);
+    this.showSemaforoItems.set(false);
+  }
+
+  private syncMaxVotesFromPhases() {
+    if (this.hasSingleVotePhase()) {
+      this.maxVotesPerCard = 1;
+    }
+  }
+
+  onPhasesChange(items: PhasePillItem[]) {
+    const byId = new Map(this.retroPhases().map((p) => [p.phaseId, p]));
+    this.retroPhases.set(
+      items
+        .map((item) => byId.get(item.id))
+        .filter((p): p is { phaseId: string; phase: Phase } => !!p),
+    );
+    this.ensureSemaforoItems();
+    this.syncMaxVotesFromPhases();
+  }
+
+  onPhaseRemoved(id: string) {
+    this.retroPhases.set(this.retroPhases().filter((p) => p.phaseId !== id));
+    this.ensureSemaforoItems();
+    this.syncMaxVotesFromPhases();
+  }
+
+  addRetroPhase(phase: Phase) {
+    if (this.retroPhases().some((p) => p.phaseId === phase.id)) return;
+    this.retroPhases.set([
+      ...this.retroPhases(),
+      { phaseId: phase.id, phase },
+    ]);
+    this.ensureSemaforoItems();
+    this.syncMaxVotesFromPhases();
+    if (!this.availablePhases().length) this.showAddPhases.set(false);
+  }
+
+  private ensureSemaforoItems() {
+    if (!this.needsSemaforo()) {
+      this.showSemaforoItems.set(false);
+      return;
+    }
+    if (!this.retroSemaforoItems().length) {
+      this.retroSemaforoItems.set(
+        DEFAULT_SEMAFORO_ITEMS.map((item) => ({
+          title: item.title,
+          description: item.description,
+        })),
+      );
+    }
+  }
+
+  addSemaforoItem() {
+    if (this.retroSemaforoItems().length >= MAX_SEMAFORO_ITEMS) return;
+    this.retroSemaforoItems.set([
+      ...this.retroSemaforoItems(),
+      { title: '', description: '' },
+    ]);
+    this.showSemaforoItems.set(true);
+  }
+
+  removeSemaforoItem(index: number) {
+    if (this.retroSemaforoItems().length <= 1) return;
+    this.retroSemaforoItems.set(
+      this.retroSemaforoItems().filter((_, i) => i !== index),
+    );
   }
 
   isFacilitator() {
@@ -577,6 +1135,10 @@ export class TeamPage implements OnInit, OnDestroy {
 
   closeCreateModal() {
     this.showCreateModal.set(false);
+    this.showSemaforoItems.set(false);
+    this.showAdvancedOptions.set(false);
+    this.showTemplateCols.set(false);
+    this.showAddPhases.set(false);
   }
 
   @HostListener('document:keydown.escape')
@@ -621,6 +1183,15 @@ export class TeamPage implements OnInit, OnDestroy {
         this.applyDefaults(t[0]);
       }
     });
+    this.api.listPhases().subscribe((phases) => {
+      this.phaseCatalog.set(phases);
+      const tpl = this.selectedTemplate();
+      if (tpl && !this.retroPhases().length) {
+        this.seedPhasesFromTemplate(tpl);
+        this.seedSemaforoFromTemplate(tpl);
+        this.syncMaxVotesFromPhases();
+      }
+    });
   }
 
   ngOnDestroy() {
@@ -652,6 +1223,19 @@ export class TeamPage implements OnInit, OnDestroy {
   createRetro() {
     const team = this.team();
     if (!team) return;
+    if (!this.retroPhases().length) {
+      this.error.set('Elegí al menos una fase');
+      return;
+    }
+    if (this.needsSemaforo()) {
+      const items = this.retroSemaforoItems();
+      if (!items.length || items.some((i) => !i.title.trim())) {
+        this.error.set('Completá los ítems del semáforo');
+        this.showSemaforoItems.set(true);
+        return;
+      }
+    }
+    const maxVotes = this.hasSingleVotePhase() ? 1 : this.maxVotesPerCard;
     this.api
       .createRetro({
         teamId: team.id,
@@ -659,10 +1243,22 @@ export class TeamPage implements OnInit, OnDestroy {
         title: this.title,
         maxCommentsPerParticipant: this.maxComments,
         votesPerParticipant: this.votesPerParticipant,
-        maxVotesPerCard: this.maxVotesPerCard,
+        maxVotesPerCard: maxVotes,
         allowAnonymous: this.allowAnonymous,
         allowCrossColumnGrouping: this.allowCrossColumnGrouping,
         timerSeconds: this.timerSeconds,
+        phases: this.retroPhases().map((p, position) => ({
+          phaseId: p.phaseId,
+          position,
+        })),
+        ...(this.needsSemaforo()
+          ? {
+              semaforoItems: this.retroSemaforoItems().map((item) => ({
+                title: item.title.trim(),
+                description: item.description.trim() || null,
+              })),
+            }
+          : {}),
       })
       .subscribe({
         next: (retro) => {

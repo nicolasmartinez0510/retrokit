@@ -1,5 +1,6 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsIn,
@@ -12,6 +13,7 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { AVATAR_ID_LIST } from '../../common/avatars';
 
@@ -22,6 +24,29 @@ function toOptionalBoolean({ value }: { value: unknown }): boolean | undefined {
   if (value === 'false' || value === '0') return false;
   return value as boolean;
 }
+
+export class RetroPhaseSelectionDto {
+  @IsString()
+  @IsNotEmpty()
+  phaseId!: string;
+
+  @IsInt()
+  @Min(0)
+  position!: number;
+}
+
+export class SemaforoItemInputDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
+}
+
 export class CreateRetroDto {
   @IsString()
   @IsNotEmpty()
@@ -63,6 +88,20 @@ export class CreateRetroDto {
   @IsInt()
   @Min(30)
   timerSeconds?: number | null;
+
+  /** Ordered phases for this retro; defaults to the template's phases. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RetroPhaseSelectionDto)
+  phases?: RetroPhaseSelectionDto[];
+
+  /** Semaforo items; defaults to the template's items (or the built-in set). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SemaforoItemInputDto)
+  semaforoItems?: SemaforoItemInputDto[];
 }
 
 export class UpdateSettingsDto {
@@ -112,7 +151,9 @@ export class JoinRetroDto {
   guestName?: string;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
+  @Transform(({ value }) =>
+    value === '' || value === null ? undefined : value,
+  )
   @IsString()
   @IsIn(AVATAR_ID_LIST)
   avatarId?: string;
@@ -196,9 +237,42 @@ export class VoteDto {
 }
 
 export class AdvancePhaseDto {
+  /** Id of a RetroPhase belonging to the retro, or the literal `'closed'`. */
   @IsString()
   @IsNotEmpty()
-  status!: string;
+  phaseId!: string;
+}
+
+export class ReactionDto {
+  @IsString()
+  @IsNotEmpty()
+  cardId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(16)
+  emoji!: string;
+}
+
+export const SEMAFORO_VALUES = ['red', 'yellow', 'green'] as const;
+export type SemaforoValueInput = (typeof SEMAFORO_VALUES)[number];
+
+export class SemaforoVoteDto {
+  @IsString()
+  @IsNotEmpty()
+  itemId!: string;
+
+  /** `null` clears the participant's vote. */
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsIn(SEMAFORO_VALUES)
+  value!: SemaforoValueInput | null;
+}
+
+export class SemaforoNoteDto {
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(2000)
+  note!: string | null;
 }
 
 export class TimerDto {

@@ -12,6 +12,10 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import {
+  SemaforoItemInputDto,
+  TemplatePhaseInputDto,
+} from '../../phases/dto/phases.dto';
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -82,6 +86,20 @@ export class CreateTemplateDto {
   @ValidateNested({ each: true })
   @Type(() => TemplateColumnInputDto)
   columns!: TemplateColumnInputDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => TemplatePhaseInputDto)
+  phases?: TemplatePhaseInputDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @ValidateNested({ each: true })
+  @Type(() => SemaforoItemInputDto)
+  semaforoItems?: SemaforoItemInputDto[];
 }
 
 export class UpdateTemplateDto {
@@ -126,4 +144,18 @@ export class UpdateTemplateDto {
   @ValidateNested({ each: true })
   @Type(() => TemplateColumnInputDto)
   columns?: TemplateColumnInputDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => TemplatePhaseInputDto)
+  phases?: TemplatePhaseInputDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @ValidateNested({ each: true })
+  @Type(() => SemaforoItemInputDto)
+  semaforoItems?: SemaforoItemInputDto[];
 }

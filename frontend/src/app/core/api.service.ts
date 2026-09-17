@@ -10,6 +10,7 @@ import {
   CreateTemplatePayload,
   JoinRetroResponse,
   OutgoingTeamInvite,
+  Phase,
   RetroBoard,
   RetroReport,
   TeamDetail,
@@ -241,6 +242,33 @@ export class ApiService {
     );
   }
 
+  // Phases catalog
+  listPhases() {
+    return this.http.get<Phase[]>(`${this.base}/phases`);
+  }
+
+  getPhase(id: string) {
+    return this.http.get<Phase>(`${this.base}/phases/${id}`);
+  }
+
+  createPhase(payload: Partial<Phase> & { name: string; kind: string }) {
+    return this.http.post<Phase>(`${this.base}/phases`, payload);
+  }
+
+  updatePhase(id: string, payload: Partial<Phase>) {
+    return this.http.patch<Phase>(`${this.base}/phases/${id}`, payload);
+  }
+
+  duplicatePhase(id: string) {
+    return this.http.post<Phase>(`${this.base}/phases/${id}/duplicate`, {});
+  }
+
+  deletePhase(id: string, force = false) {
+    return this.http.delete<{ ok: boolean }>(`${this.base}/phases/${id}`, {
+      params: force ? { force: '1' } : {},
+    });
+  }
+
   // Retros
   createRetro(payload: CreateRetroPayload) {
     return this.http.post<RetroBoard & { openActionsReminder?: number }>(
@@ -273,8 +301,8 @@ export class ApiService {
     return this.http.patch(`${this.base}/retros/${id}/settings`, { title });
   }
 
-  advancePhase(id: string, status: string) {
-    return this.http.post(`${this.base}/retros/${id}/phase`, { status });
+  advancePhase(id: string, phaseId: string) {
+    return this.http.post(`${this.base}/retros/${id}/phase`, { phaseId });
   }
 
   setPresenter(id: string, cardId: string | null) {
@@ -285,9 +313,35 @@ export class ApiService {
   }
 
   setCommentsReady(id: string, ready: boolean) {
-    return this.http.patch<{ commentsReady?: boolean; votesReady?: boolean }>(
-      `${this.base}/retros/${id}/me/ready`,
-      { ready },
+    return this.http.patch<{
+      commentsReady?: boolean;
+      votesReady?: boolean;
+      semaforoReady?: boolean;
+    }>(`${this.base}/retros/${id}/me/ready`, { ready });
+  }
+
+  toggleReaction(id: string, cardId: string, emoji: string) {
+    return this.http.post(`${this.base}/retros/${id}/reactions`, {
+      cardId,
+      emoji,
+    });
+  }
+
+  setSemaforoVote(
+    id: string,
+    itemId: string,
+    value: 'red' | 'yellow' | 'green' | null,
+  ) {
+    return this.http.post(`${this.base}/retros/${id}/semaforo/votes`, {
+      itemId,
+      value,
+    });
+  }
+
+  setSemaforoNote(id: string, itemId: string, note: string | null) {
+    return this.http.patch(
+      `${this.base}/retros/${id}/semaforo/items/${itemId}`,
+      { note },
     );
   }
 

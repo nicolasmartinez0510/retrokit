@@ -28,7 +28,10 @@ import {
   CreateRetroDto,
   GroupCardsDto,
   JoinRetroDto,
+  ReactionDto,
   RotiDto,
+  SemaforoNoteDto,
+  SemaforoVoteDto,
   SetCommentsReadyDto,
   SetPresenterDto,
   TimerAddDto,
@@ -105,7 +108,7 @@ export class RetrosController {
     @Param('id') id: string,
     @Body() dto: AdvancePhaseDto,
   ) {
-    return this.retros.advancePhase(user, id, dto.status);
+    return this.retros.advancePhase(user, id, dto.phaseId);
   }
 
   @Post(':id/presenter')
@@ -125,7 +128,7 @@ export class RetrosController {
     @Param('id') id: string,
     @Body() dto: SetCommentsReadyDto,
   ) {
-    return this.retros.setCommentsReady(user, id, dto.ready);
+    return this.retros.setReady(user, id, dto.ready);
   }
 
   @Post(':id/cards')
@@ -224,6 +227,37 @@ export class RetrosController {
     @Body() dto: VoteDto,
   ) {
     return this.retros.setVote(user, id, dto);
+  }
+
+  @Post(':id/reactions')
+  @UseGuards(JwtAuthGuard)
+  toggleReaction(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: ReactionDto,
+  ) {
+    return this.retros.toggleReaction(user, id, dto);
+  }
+
+  @Post(':id/semaforo/votes')
+  @UseGuards(JwtAuthGuard)
+  setSemaforoVote(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: SemaforoVoteDto,
+  ) {
+    return this.retros.setSemaforoVote(user, id, dto);
+  }
+
+  @Patch(':id/semaforo/items/:itemId')
+  @UseGuards(JwtAuthGuard)
+  setSemaforoNote(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: SemaforoNoteDto,
+  ) {
+    return this.retros.setSemaforoNote(user, id, itemId, dto.note);
   }
 
   @Post(':id/timer/start')

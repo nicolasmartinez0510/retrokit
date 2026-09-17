@@ -29,14 +29,20 @@ import {
   ActionItem,
   ActionLinkedCard,
   Card,
+  CardSort,
   Participant,
-  PHASE_LABELS,
-  PHASES,
   RetroBoard,
   RetroColumn,
-  RetroStatus,
+  RetroPhase,
+  SemaforoItem,
+  SemaforoValue,
 } from '../../core/models';
+import { resolveMaxCards, semaforoEmojiMap } from '../../core/phase-rules';
 import { formatDueDate } from '../../core/dates';
+import {
+  PhasePillItem,
+  PhasePillsComponent,
+} from '../../shared/phase-pills.component';
 import { ActionItemModalComponent } from '../../shared/action-item-modal.component';
 import type { ActionItemSavePayload } from '../../shared/action-item-modal.component';
 import {
@@ -59,6 +65,22 @@ import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 type SortMode = 'most' | 'least' | 'original';
 type VoteFilter = 'all' | 'voted';
+
+/** Sentinel phase id used by `advancePhase` to close the retro. */
+export const CLOSED_PHASE_ID = 'closed';
+
+const SEMAFORO_VALUES: readonly SemaforoValue[] = ['red', 'yellow', 'green'];
+const SEMAFORO_LABEL: Record<SemaforoValue, string> = {
+  red: 'Rojo',
+  yellow: 'Amarillo',
+  green: 'Verde',
+};
+
+function sortModeFromCardSort(sort: CardSort | null | undefined): SortMode {
+  if (sort === 'most_voted') return 'most';
+  if (sort === 'least_voted') return 'least';
+  return 'original';
+}
 
 export type PresenceUser = {
   participantId: string;
@@ -120,6 +142,7 @@ const CARD_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
     EmojiPickerComponent,
     UserAvatarComponent,
     ActionItemModalComponent,
+    PhasePillsComponent,
     CdkDropList,
     CdkDrag,
   ],
@@ -144,7 +167,6 @@ export class RetroPage implements OnInit, OnDestroy {
     this.exitRetro();
   };
   private readonly boardEvents = [
-    'phase-changed',
     'card-created',
     'card-updated',
     'card-deleted',
@@ -156,7 +178,24 @@ export class RetroPage implements OnInit, OnDestroy {
     'participant-joined',
     'comments-ready-changed',
     'votes-ready-changed',
+    'semaforo-ready-changed',
+    'card-reaction',
+    'semaforo-vote',
   ] as const;
+  private lastSortPhaseId: string | null = null;
+  private readonly onPhaseChanged = (payload: unknown) => {
+    const board = this.retro();
+    const parsed = parsePhaseChanged(payload);
+    if (board && parsed) {
+      this.retro.set({
+        ...board,
+        currentPhaseId: parsed.phaseId ?? board.currentPhaseId,
+        closedAt: parsed.closedAt,
+        closed: !!parsed.closedAt,
+      });
+    }
+    this.refreshBoard();
+  };
 
   retro = signal<RetroBoard | null>(null);
   presence = signal<PresenceUser[]>([]);
@@ -229,6 +268,11 @@ export class RetroPage implements OnInit, OnDestroy {
   rotiComment = '';
   timerLeft = signal<number | null>(null);
   private timerHandle: ReturnType<typeof setInterval> | null = null;
+  readonly semaforoValues = SEMAFORO_VALUES;
+  readonly semaforoLabel = SEMAFORO_LABEL;
+  semaforoEmoji = computed(() =>
+    semaforoEmojiMap(this.caps()?.semaforoEmojis),
+  );
 
   // settings form
   maxComments: number | null = 3;
@@ -242,31 +286,145 @@ export class RetroPage implements OnInit, OnDestroy {
     { value: 900, label: '15 min' },
   ];
 
-  phases = PHASES;
-  nextPhase = computed(() => {
-    const status = this.retro()?.status;
-    if (!status) return null;
-    const idx = PHASES.findIndex((p) => p.key === status);
-    if (idx < 0 || idx >= PHASES.length - 1) {
-      return status === 'roti' ? ('closed' as RetroStatus) : null;
-    }
-    return PHASES[idx + 1].key;
+  // ---------------------------------------------------------------------------
+  // Phase engine
+  // ---------------------------------------------------------------------------
+
+  phases = computed<RetroPhase[]>(() =>
+    [...(this.retro()?.phases ?? [])].sort((a, b) => a.position - b.position),
+  );
+
+  currentPhase = computed<RetroPhase | null>(() => {
+    const r = this.retro();
+    if (!r) return null;
+    return (
+      r.currentPhase ??
+      r.phases.find((p) => p.id === r.currentPhaseId) ??
+      this.phases()[0] ??
+      null
+    );
   });
-  prevPhase = computed(() => {
-    const status = this.retro()?.status;
-    if (!status) return null;
-    const idx = PHASES.findIndex((p) => p.key === status);
+
+  /** Effective capabilities of the current phase (already normalized server-side). */
+  caps = computed(() => this.currentPhase());
+
+  isClosed = computed(() => !!this.retro()?.closed);
+  isBoard = computed(() => this.caps()?.kind === 'board');
+  isActionPlan = computed(() => this.caps()?.kind === 'action_plan');
+  isRoti = computed(() => this.caps()?.kind === 'roti');
+  isSemaforo = computed(() => this.caps()?.kind === 'semaforo');
+  isSemaforoReview = computed(() => this.caps()?.kind === 'semaforo_review');
+  canCreateCards = computed(
+    () => !this.isClosed() && !!this.caps()?.allowCreateCards,
+  );
+  canEditOwnCards = computed(
+    () => this.canCreateCards() && !!this.caps()?.allowEditOwnCards,
+  );
+  canGroup = computed(() => !this.isClosed() && !!this.caps()?.allowGrouping);
+  isVotingPhase = computed(() => {
+    const voting = this.caps()?.voting;
+    return !this.isClosed() && !!voting && voting !== 'off';
+  });
+  isSingleVote = computed(() => this.caps()?.voting === 'single');
+  allowReactions = computed(
+    () => !this.isClosed() && !!this.caps()?.allowReactions,
+  );
+  reactionEmojis = computed(() => this.caps()?.reactionEmojis ?? []);
+  allowPresentation = computed(
+    () => !this.isClosed() && !!this.caps()?.allowPresentation,
+  );
+  allowActionItems = computed(
+    () => !this.isClosed() && !!this.caps()?.allowActionItems,
+  );
+  showReady = computed(() => !this.isClosed() && !!this.caps()?.showReadyCheck);
+  showTextInput = computed(() => this.cardContentMode() !== 'image_only');
+  showImageInput = computed(() => this.cardContentMode() !== 'text_only');
+  voteCountsHidden = computed(() => !!this.retro()?.voteCountsHidden);
+  cardContentMode = computed(
+    () => this.caps()?.cardContent ?? 'text_and_image',
+  );
+  effectiveMaxCards = computed(() =>
+    resolveMaxCards(
+      this.caps()?.maxCardsPerParticipant,
+      this.retro()?.maxCommentsPerParticipant ?? null,
+    ),
+  );
+  allowAnonymousComposer = computed(
+    () => !!this.retro()?.allowAnonymous && this.canCreateCards(),
+  );
+
+  phasePillItems = computed<PhasePillItem[]>(() =>
+    this.phases().map((p) => ({
+      id: p.id,
+      name: p.name,
+      icon: p.icon,
+      color: p.color,
+    })),
+  );
+
+  sortedSemaforoItems = computed(() => {
+    const items = [...(this.retro()?.semaforoItems ?? [])];
+    items.sort((a, b) => a.position - b.position);
+    return items;
+  });
+
+  /** Semáforo review: worst (most red) first. */
+  reviewSemaforoItems = computed(() => {
+    const items = [...this.sortedSemaforoItems()];
+    items.sort((a, b) => {
+      const ra = a.summary?.red ?? 0;
+      const rb = b.summary?.red ?? 0;
+      if (rb !== ra) return rb - ra;
+      return a.position - b.position;
+    });
+    return items;
+  });
+
+  private currentPhaseIndex = computed(() => {
+    const cur = this.currentPhase();
+    if (!cur) return -1;
+    return this.phases().findIndex((p) => p.id === cur.id);
+  });
+
+  donePhaseIds = computed<string[]>(() => {
+    const list = this.phases();
+    if (this.isClosed()) return list.map((p) => p.id);
+    const idx = this.currentPhaseIndex();
+    if (idx < 0) return [];
+    return list.slice(0, idx).map((p) => p.id);
+  });
+
+  /** Next phase id, `'closed'` after the last one, or null when already closed. */
+  nextPhase = computed<string | null>(() => {
+    if (!this.retro() || this.isClosed()) return null;
+    const list = this.phases();
+    const idx = this.currentPhaseIndex();
+    if (idx < 0) return list[0]?.id ?? null;
+    if (idx >= list.length - 1) return CLOSED_PHASE_ID;
+    return list[idx + 1].id;
+  });
+
+  prevPhase = computed<string | null>(() => {
+    if (!this.retro()) return null;
+    const list = this.phases();
+    if (this.isClosed()) return list[list.length - 1]?.id ?? null;
+    const idx = this.currentPhaseIndex();
     if (idx <= 0) return null;
-    return PHASES[idx - 1].key;
+    return list[idx - 1].id;
   });
-  dockNextPhase = computed(() => {
+
+  dockNextPhase = computed<string | null>(() => {
     const next = this.nextPhase();
-    if (!next || next === 'closed') return null;
+    if (!next) return null;
+    // ROTI has its own "Enviar y cerrar" button.
+    if (next === CLOSED_PHASE_ID && this.isRoti()) return null;
     return next;
   });
 
-  phaseLabel(status: RetroStatus) {
-    return PHASE_LABELS[status];
+  phaseLabel(phaseId: string | null | undefined): string {
+    if (!phaseId) return '';
+    if (phaseId === CLOSED_PHASE_ID) return 'Cerrar retro';
+    return this.phases().find((p) => p.id === phaseId)?.name ?? 'Fase';
   }
 
   toggleInvite() {
@@ -293,7 +451,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   isPresenting = computed(() => {
     const r = this.retro();
-    return r?.status === 'actions' && !!r.presenterCardId;
+    return this.allowPresentation() && !!r?.presenterCardId;
   });
 
   isTimerRunning = computed(() => {
@@ -316,21 +474,32 @@ export class RetroPage implements OnInit, OnDestroy {
 
   canComment = computed(() => {
     const r = this.retro();
-    if (!r?.me?.participantId) return false;
-    if (r.status !== 'comments' && r.status !== 'grouping') return false;
-    if (r.maxCommentsPerParticipant == null) return true;
-    return r.me.myCommentCount < r.maxCommentsPerParticipant;
+    if (!r?.me?.participantId || !this.canCreateCards()) return false;
+    const max = this.effectiveMaxCards();
+    if (max == null) return true;
+    return r.me.myCommentCount < max;
+  });
+
+  meReady = computed(() => {
+    const me = this.retro()?.me;
+    if (!me) return false;
+    if (this.isSemaforo()) return !!me.semaforoReady;
+    if (this.isVotingPhase()) return !!me.votesReady;
+    return !!me.commentsReady;
   });
 
   readyLocked = computed(() => {
     const r = this.retro();
     if (!r?.me?.participantId) return true;
-    if (r.status === 'voting') {
+    if (this.isVotingPhase()) {
       return this.usedVoteTotal() >= r.votesPerParticipant;
     }
-    if (r.status !== 'comments' && r.status !== 'grouping') return false;
-    if (r.maxCommentsPerParticipant == null) return false;
-    return r.me.myCommentCount >= r.maxCommentsPerParticipant;
+    if (this.canCreateCards()) {
+      const max = this.effectiveMaxCards();
+      if (max == null) return false;
+      return r.me.myCommentCount >= max;
+    }
+    return false;
   });
 
   ngOnInit() {
@@ -341,6 +510,7 @@ export class RetroPage implements OnInit, OnDestroy {
     for (const event of this.boardEvents) {
       this.sockets.on(event, this.refreshBoard);
     }
+    this.sockets.on('phase-changed', this.onPhaseChanged);
     this.sockets.on('retro-deleted', this.onRetroDeleted);
     this.sockets.on('confetti', this.onConfetti);
     this.sockets.on('avatar-changed', this.onAvatarChanged);
@@ -355,6 +525,7 @@ export class RetroPage implements OnInit, OnDestroy {
     for (const event of this.boardEvents) {
       this.sockets.off(event, this.refreshBoard);
     }
+    this.sockets.off('phase-changed', this.onPhaseChanged);
     this.sockets.off('retro-deleted', this.onRetroDeleted);
     this.sockets.off('confetti', this.onConfetti);
     this.sockets.off('avatar-changed', this.onAvatarChanged);
@@ -429,10 +600,11 @@ export class RetroPage implements OnInit, OnDestroy {
         this.accessDenied.set(null);
         this.loadError.set('');
         this.retro.set(r);
-        if (r.status !== 'actions') {
+        if (!this.allowPresentation()) {
           this.presentArmed.set(false);
           this.lastPresentIndex = -1;
         }
+        this.applyPhaseSortDefaults(r);
         this.maxComments = r.maxCommentsPerParticipant;
         this.votesPerParticipant = r.votesPerParticipant;
         this.maxVotesPerCard = r.maxVotesPerCard;
@@ -512,7 +684,7 @@ export class RetroPage implements OnInit, OnDestroy {
       this.clearSpectateChoice(r.id);
       return;
     }
-    if (r.status === 'closed') {
+    if (r.closed) {
       this.showJoinModal.set(false);
       return;
     }
@@ -647,7 +819,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
     cards = [...cards, ...grouped];
 
-    const shouldSort = opts?.sort !== false && r.status === 'actions';
+    const shouldSort = opts?.sort !== false && this.isActionPlan();
     if (shouldSort) {
       const mode = this.sortMode();
       if (mode !== 'original') {
@@ -696,21 +868,20 @@ export class RetroPage implements OnInit, OnDestroy {
   }
 
   canGroupDrag() {
-    const r = this.retro();
-    return (
-      !!r &&
-      r.status === 'grouping' &&
-      this.isParticipant() &&
-      !this.editingCardId
-    );
+    return this.canGroup() && this.isParticipant() && !this.editingCardId;
   }
 
   groupingHint() {
-    const r = this.retro();
-    if (r?.allowCrossColumnGrouping) {
+    if (this.allowsCrossColumnGrouping()) {
       return 'Arrastrá una tarjeta sobre otra para agrupar. Soltala en el vacío de una columna para dejarla suelta.';
     }
     return 'Arrastrá una tarjeta sobre otra de la misma columna para agrupar. Soltala en el vacío para dejarla suelta.';
+  }
+
+  private allowsCrossColumnGrouping() {
+    const caps = this.caps();
+    if (caps) return !!caps.allowCrossColumnGrouping;
+    return !!this.retro()?.allowCrossColumnGrouping;
   }
 
   columnDropId(columnId: string) {
@@ -742,7 +913,7 @@ export class RetroPage implements OnInit, OnDestroy {
   connectedDropListIds(columnId: string): string[] {
     const r = this.retro();
     if (!r || !this.canGroupDrag()) return [];
-    const cols = r.allowCrossColumnGrouping
+    const cols = this.allowsCrossColumnGrouping()
       ? r.columns
       : r.columns.filter((c) => c.id === columnId);
     return cols.map((col) => this.columnDropId(col.id));
@@ -785,7 +956,7 @@ export class RetroPage implements OnInit, OnDestroy {
     if (source.kind === 'column' || dest.kind !== 'column') return false;
     const r = this.retro();
     if (!r) return false;
-    if (!r.allowCrossColumnGrouping && source.columnId !== dest.columnId) {
+    if (!this.allowsCrossColumnGrouping() && source.columnId !== dest.columnId) {
       return false;
     }
     return true;
@@ -820,7 +991,7 @@ export class RetroPage implements OnInit, OnDestroy {
       return;
     }
     if (!dest) return;
-    if (!r.allowCrossColumnGrouping && source.columnId !== dest.columnId) {
+    if (!this.allowsCrossColumnGrouping() && source.columnId !== dest.columnId) {
       return;
     }
 
@@ -875,7 +1046,7 @@ export class RetroPage implements OnInit, OnDestroy {
       if (!node) continue;
       const parsed = this.parseGroupTarget(node);
       if (!parsed) continue;
-      if (!this.retro()?.allowCrossColumnGrouping && parsed.columnId !== source.columnId) {
+      if (!this.allowsCrossColumnGrouping() && parsed.columnId !== source.columnId) {
         continue;
       }
       if (parsed.kind === 'column') {
@@ -912,7 +1083,7 @@ export class RetroPage implements OnInit, OnDestroy {
     const r = this.retro();
     if (!r || this.editingCardId) return;
     if (
-      (r.status === 'voting' || r.status === 'actions') &&
+      (this.isVotingPhase() || this.isActionPlan()) &&
       this.isGroupCard(card)
     ) {
       this.toggleStack(card, event);
@@ -980,7 +1151,7 @@ export class RetroPage implements OnInit, OnDestroy {
       return;
     }
 
-    if (!this.isFacilitator() || this.retro()?.status !== 'actions') return;
+    if (!this.isFacilitator() || !this.allowPresentation()) return;
     if (this.showSettings || this.showInvite) return;
 
     if (event.key === 'p' || event.key === 'P') {
@@ -1067,7 +1238,11 @@ export class RetroPage implements OnInit, OnDestroy {
 
   canSubmitComposer(columnId: string): boolean {
     const content = (this.draft[columnId] || '').trim();
-    return !!content || !!this.draftImage[columnId];
+    const hasImage = !!this.draftImage[columnId];
+    const mode = this.cardContentMode();
+    if (mode === 'image_only') return hasImage;
+    if (mode === 'text_only') return !!content;
+    return !!content || hasImage;
   }
 
   addCard(columnId: string) {
@@ -1165,17 +1340,14 @@ export class RetroPage implements OnInit, OnDestroy {
   }
 
   canEditCard(card: Card & { isGroup?: boolean }): boolean {
-    const r = this.retro();
-    if (!r) return false;
-    if (r.status !== 'comments' && r.status !== 'grouping') return false;
-    if (card.hidden || card.isGroup) return false;
+    if (!this.canEditOwnCards()) return false;
+    if (card.hidden || card.blurred || card.isGroup) return false;
     return this.isOwnCard(card);
   }
 
   canDeleteCard(card: Card & { isGroup?: boolean }): boolean {
     const r = this.retro();
-    if (!r) return false;
-    if (r.status !== 'comments' && r.status !== 'grouping') return false;
+    if (!r || !this.canCreateCards()) return false;
     if (card.hidden) return false;
     return this.isOwnCard(card) || !!r.me?.isFacilitator;
   }
@@ -1207,6 +1379,9 @@ export class RetroPage implements OnInit, OnDestroy {
     const content = this.editDraft.trim();
     const hasImage =
       !!this.editImageFile || (!!this.editImageUrl && !this.editRemoveImage);
+    const mode = this.cardContentMode();
+    if (mode === 'image_only') return hasImage;
+    if (mode === 'text_only') return !!content;
     return !!content || hasImage;
   }
 
@@ -1349,7 +1524,7 @@ export class RetroPage implements OnInit, OnDestroy {
     });
   }
 
-  toggleCommentsReady(ready: boolean) {
+  toggleReady(ready: boolean) {
     const r = this.retro();
     if (!r || this.readyLocked()) return;
     this.api.setCommentsReady(r.id, ready).subscribe({
@@ -1359,23 +1534,29 @@ export class RetroPage implements OnInit, OnDestroy {
     });
   }
 
+  /** @deprecated Prefer toggleReady */
+  toggleCommentsReady(ready: boolean) {
+    this.toggleReady(ready);
+  }
+
+  /** @deprecated Prefer toggleReady */
   toggleVotesReady(ready: boolean) {
-    const r = this.retro();
-    if (!r || this.readyLocked()) return;
-    this.api.setCommentsReady(r.id, ready).subscribe({
-      next: () => this.reload(r.id),
-      error: (e) =>
-        this.error.set(e?.error?.message || 'No se pudo actualizar el estado'),
-    });
+    this.toggleReady(ready);
   }
 
   changeVote(card: Card, delta: number) {
     const r = this.retro();
-    if (!r || this.isSpectator()) return;
-    const next = Math.max(0, this.myVotesOn(card) + delta);
-    if (next > r.maxVotesPerCard) {
-      this.error.set(`Máximo ${r.maxVotesPerCard} votos por tarjeta`);
-      return;
+    if (!r || this.isSpectator() || !this.isVotingPhase()) return;
+    const current = this.myVotesOn(card);
+    let next: number;
+    if (this.isSingleVote()) {
+      next = current > 0 ? 0 : 1;
+    } else {
+      next = Math.max(0, current + delta);
+      if (next > r.maxVotesPerCard) {
+        this.error.set(`Máximo ${r.maxVotesPerCard} votos por tarjeta`);
+        return;
+      }
     }
     const body = card.groupId
       ? { groupId: card.groupId, count: next }
@@ -1386,24 +1567,79 @@ export class RetroPage implements OnInit, OnDestroy {
     });
   }
 
+  toggleSingleVote(card: Card, event?: Event) {
+    event?.stopPropagation();
+    this.changeVote(card, 0);
+  }
+
+  displayVoteCount(card: Card): string {
+    if (this.voteCountsHidden() && !this.isOwnCard(card)) return '·';
+    if (this.voteCountsHidden()) {
+      const mine = this.myVotesOn(card);
+      return mine > 0 ? String(mine) : '·';
+    }
+    return String(this.voteCount(card));
+  }
+
+  reactionsFor(card: Card): { emoji: string; count: number; mine: boolean }[] {
+    const r = this.retro();
+    const pid = r?.me?.participantId;
+    const list =
+      card.reactions ??
+      r?.reactions?.filter((x) => x.cardId === card.id) ??
+      [];
+    const emojis = this.reactionEmojis();
+    const byEmoji = new Map<string, { count: number; mine: boolean }>();
+    for (const emoji of emojis) {
+      byEmoji.set(emoji, { count: 0, mine: false });
+    }
+    for (const row of list) {
+      const cur = byEmoji.get(row.emoji) ?? { count: 0, mine: false };
+      cur.count += 1;
+      if (pid && row.participantId === pid) cur.mine = true;
+      byEmoji.set(row.emoji, cur);
+    }
+    return [...byEmoji.entries()].map(([emoji, v]) => ({
+      emoji,
+      count: v.count,
+      mine: v.mine,
+    }));
+  }
+
+  toggleReaction(card: Card, emoji: string, event?: Event) {
+    event?.stopPropagation();
+    const r = this.retro();
+    if (!r || !this.allowReactions() || this.isSpectator()) return;
+    this.api.toggleReaction(r.id, card.id, emoji).subscribe({
+      next: () => this.reload(r.id),
+      error: (e) =>
+        this.error.set(e?.error?.message || 'No se pudo actualizar la reacción'),
+    });
+  }
+
   advance() {
     const next = this.nextPhase();
     if (!next) return;
     this.goToPhase(next);
   }
 
-  goToPhase(status: RetroStatus) {
+  goToPhase(phaseId: string) {
     const r = this.retro();
-    if (!r || !this.isFacilitator() || r.status === status) return;
-    this.api.advancePhase(r.id, status).subscribe({
+    if (!r || !this.isFacilitator()) return;
+    const currentId = this.isClosed()
+      ? CLOSED_PHASE_ID
+      : (r.currentPhaseId ?? this.currentPhase()?.id ?? null);
+    if (phaseId === currentId) return;
+    this.api.advancePhase(r.id, phaseId).subscribe({
       next: () => {
-        if (status === 'closed') {
+        if (phaseId === CLOSED_PHASE_ID) {
           void this.router.navigate(['/retros', r.id, 'report']);
         } else {
           this.reload(r.id);
         }
       },
-      error: (e) => this.error.set(e?.error?.message || 'No se pudo cambiar de fase'),
+      error: (e) =>
+        this.error.set(e?.error?.message || 'No se pudo cambiar de fase'),
     });
   }
 
@@ -1514,7 +1750,7 @@ export class RetroPage implements OnInit, OnDestroy {
   }
 
   canArmPresenting() {
-    return this.isFacilitator() && this.retro()?.status === 'actions';
+    return this.isFacilitator() && this.allowPresentation();
   }
 
   setPresentArmed(on: boolean) {
@@ -1579,7 +1815,7 @@ export class RetroPage implements OnInit, OnDestroy {
 
   jumpToSlide(item: BoardCard, event: Event) {
     if (!this.presentArmed() || !this.isFacilitator()) return;
-    if (this.retro()?.status !== 'actions') return;
+    if (!this.allowPresentation()) return;
     const target = event.target;
     if (target instanceof Element && target.closest('button')) return;
     this.setPresenterCard(item.id);
@@ -1738,7 +1974,7 @@ export class RetroPage implements OnInit, OnDestroy {
   }
 
   openCreateActionFromTopic(item: BoardCard) {
-    if (!this.isParticipant()) return;
+    if (!this.isParticipant() || !this.allowActionItems()) return;
     this.actionFormTitle = this.topicPreview(item).slice(0, 300);
     this.actionFormDescription = '';
     this.actionFormOwnerId = '';
@@ -1758,7 +1994,7 @@ export class RetroPage implements OnInit, OnDestroy {
   }
 
   openCreateAction() {
-    if (!this.isParticipant()) return;
+    if (!this.isParticipant() || !this.allowActionItems()) return;
     this.actionFormTitle = '';
     this.actionFormDescription = '';
     this.actionFormOwnerId = '';
@@ -1878,13 +2114,109 @@ export class RetroPage implements OnInit, OnDestroy {
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
-  isPhaseDone(key: RetroStatus) {
-    const status = this.retro()?.status;
-    if (!status) return false;
-    const cur = PHASES.findIndex((p) => p.key === status);
-    const idx = PHASES.findIndex((p) => p.key === key);
-    return idx >= 0 && cur > idx;
+  // ---------------------------------------------------------------------------
+  // Semáforo
+  // ---------------------------------------------------------------------------
+
+  mySemaforoVote(itemId: string): SemaforoValue | null {
+    const r = this.retro();
+    const pid = r?.me?.participantId;
+    if (!r || !pid) return null;
+    const vote =
+      r.semaforoVotes?.find(
+        (v) => v.itemId === itemId && v.participantId === pid,
+      ) ??
+      r.semaforoItems
+        ?.find((i) => i.id === itemId)
+        ?.votes?.find((v) => v.participantId === pid);
+    return vote?.value ?? null;
   }
+
+  semaforoVoteOf(
+    itemId: string,
+    participantId: string,
+  ): SemaforoValue | null {
+    const r = this.retro();
+    if (!r) return null;
+    const vote =
+      r.semaforoVotes?.find(
+        (v) => v.itemId === itemId && v.participantId === participantId,
+      ) ??
+      r.semaforoItems
+        ?.find((i) => i.id === itemId)
+        ?.votes?.find((v) => v.participantId === participantId);
+    return vote?.value ?? null;
+  }
+
+  setSemaforoColor(itemId: string, value: SemaforoValue) {
+    const r = this.retro();
+    if (!r || !this.isSemaforo() || this.isSpectator()) return;
+    const current = this.mySemaforoVote(itemId);
+    const next = current === value ? null : value;
+    this.api.setSemaforoVote(r.id, itemId, next).subscribe({
+      next: () => this.reload(r.id),
+      error: (e) =>
+        this.error.set(e?.error?.message || 'No se pudo guardar el voto'),
+    });
+  }
+
+  openActionFromSemaforoItem(item: SemaforoItem) {
+    if (!this.isParticipant() || !this.allowActionItems()) return;
+    this.actionFormTitle = item.title.slice(0, 300);
+    this.actionFormDescription = item.description?.trim() || '';
+    this.actionFormOwnerId = '';
+    this.actionFormDueDate = '';
+    this.actionFormCardId = null;
+    this.actionFormGroupId = null;
+    this.actionFormLinked = [];
+    this.showActionModal.set(true);
+  }
+
+  participantsForSemaforoSummary(
+    item: SemaforoItem,
+    value: SemaforoValue,
+  ): Participant[] {
+    const r = this.retro();
+    if (!r) return [];
+    const ids = new Set(
+      (item.votes ?? [])
+        .filter((v) => v.value === value)
+        .map((v) => v.participantId),
+    );
+    return r.participants.filter((p) => ids.has(p.id));
+  }
+
+  private applyPhaseSortDefaults(r: RetroBoard) {
+    const phase =
+      r.currentPhase ??
+      r.phases.find((p) => p.id === r.currentPhaseId) ??
+      null;
+    const phaseId = phase?.id ?? null;
+    if (!phaseId || phaseId === this.lastSortPhaseId) return;
+    this.lastSortPhaseId = phaseId;
+    this.sortMode.set(sortModeFromCardSort(phase?.defaultSort));
+  }
+}
+
+function parsePhaseChanged(
+  payload: unknown,
+): { phaseId: string | null; closedAt: string | null } | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const row = payload as Record<string, unknown>;
+  if (!('phaseId' in row)) return null;
+  const phaseId =
+    typeof row['phaseId'] === 'string'
+      ? row['phaseId']
+      : row['phaseId'] === null
+        ? null
+        : null;
+  const closedAt =
+    typeof row['closedAt'] === 'string'
+      ? row['closedAt']
+      : row['closedAt'] === null
+        ? null
+        : null;
+  return { phaseId, closedAt };
 }
 
 function parsePresenterCardId(payload: unknown): string | null {
