@@ -1,28 +1,51 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
 import { RealtimeEventsService } from '../realtime/realtime-events.service';
+import { expireOverdueActions } from '../common/action-expiry';
 import {
   actionItemInclude,
   parseOptionalDueDate,
   serializeActionItem,
+  statusForDueDate,
 } from '../common/action-item';
 import { CreateTeamActionDto, UpdateActionDto } from './dto/action.dto';
 
+const EXPIRE_INTERVAL_MS = 60 * 60 * 1000;
+
 @Injectable()
-export class ActionsService {
+export class ActionsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ActionsService.name);
+  private expireTimer?: ReturnType<typeof setInterval>;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly teams: TeamsService,
     private readonly events: RealtimeEventsService,
   ) {}
 
+  onModuleInit() {
+    void this.expireAllOverdue();
+    this.expireTimer = setInterval(
+      () => void this.expireAllOverdue(),
+      EXPIRE_INTERVAL_MS,
+    );
+  }
+
+  onModuleDestroy() {
+    if (this.expireTimer) clearInterval(this.expireTimer);
+  }
+
   async listForTeam(userId: string, teamId: string) {
     await this.teams.assertMemberOrAdmin(userId, teamId);
+    await this.expireOverdueForTeam(teamId);
     const items = await this.prisma.actionItem.findMany({
       where: { teamId },
       include: actionItemInclude,
@@ -44,6 +67,7 @@ export class ActionsService {
     if (!retro) {
       throw new BadRequestException('Retrospective not found');
     }
+    const dueDate = parseOptionalDueDate(dto.dueDate) ?? null;
     const action = await this.prisma.actionItem.create({
       data: {
         teamId,
@@ -52,7 +76,8 @@ export class ActionsService {
         description: dto.description?.trim() || null,
         ownerId: dto.ownerId || null,
         createdById: userId,
-        dueDate: parseOptionalDueDate(dto.dueDate) ?? null,
+        dueDate,
+        status: statusForDueDate(dueDate),
       },
       include: actionItemInclude,
     });
@@ -69,6 +94,11 @@ export class ActionsService {
     await this.teams.assertCanMutateAction(userId, action.teamId, action);
 
     const dueDate = parseOptionalDueDate(dto.dueDate);
+    const nextDueDate = dueDate === undefined ? action.dueDate : dueDate;
+    const nextStatus =
+      dto.status !== undefined
+        ? statusForDueDate(nextDueDate, dto.status)
+        : statusForDueDate(nextDueDate, action.status);
 
     const updated = await this.prisma.actionItem.update({
       where: { id: actionId },
@@ -77,14 +107,14 @@ export class ActionsService {
         ...(dto.description !== undefined && {
           description: dto.description.trim() || null,
         }),
-        ...(dto.status !== undefined && { status: dto.status }),
         ...(dto.ownerId !== undefined && { ownerId: dto.ownerId }),
         ...(dueDate !== undefined && { dueDate }),
+        status: nextStatus,
       },
       include: actionItemInclude,
     });
     const payload = serializeActionItem(updated);
-    this.events.emitToTeam(action.teamId, 'action-updated', payload);
+    this.emitActionUpdated(payload);
     return payload;
   }
 
@@ -115,5 +145,40 @@ export class ActionsService {
       teamId: action.teamId,
     });
     return { deleted: true };
+  }
+
+  async expireOverdueForTeam(teamId: string) {
+    const expired = await expireOverdueActions(this.prisma, { teamId });
+    for (const item of expired) {
+      this.emitActionUpdated(serializeActionItem(item));
+    }
+    return expired;
+  }
+
+  private async expireAllOverdue() {
+    try {
+      const expired = await expireOverdueActions(this.prisma);
+      for (const item of expired) {
+        this.emitActionUpdated(serializeActionItem(item));
+      }
+      if (expired.length) {
+        this.logger.log(`Marked ${expired.length} overdue action(s) as unmet`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to expire overdue actions: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private emitActionUpdated(
+    payload: ReturnType<typeof serializeActionItem>,
+  ) {
+    this.events.emitToTeam(payload.teamId, 'action-updated', payload);
+    if (payload.retroId) {
+      this.events.emit(payload.retroId, 'action-updated', payload);
+    }
   }
 }

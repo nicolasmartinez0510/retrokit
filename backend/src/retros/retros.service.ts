@@ -15,10 +15,12 @@ import {
   resolveParticipantAvatar,
   userPublicSelect,
 } from '../common/avatars';
+import { expireOverdueActions } from '../common/action-expiry';
 import {
   actionItemInclude,
   parseOptionalDueDate,
   serializeActionItem,
+  statusForDueDate,
 } from '../common/action-item';
 import {
   CreateActionFromRetroDto,
@@ -156,6 +158,8 @@ export class RetrosService {
               description: i.description,
             }))
       : [];
+
+    await this.expireOverdueForTeam(dto.teamId);
 
     const openActionsReminder = await this.prisma.actionItem.count({
       where: {
@@ -1608,6 +1612,7 @@ export class RetrosService {
       cardId = card.id;
     }
 
+    const dueDate = parseOptionalDueDate(dto.dueDate) ?? null;
     const action = await this.prisma.actionItem.create({
       data: {
         teamId: retro.teamId,
@@ -1616,7 +1621,8 @@ export class RetrosService {
         description: dto.description?.trim() || null,
         ownerId: dto.ownerId || null,
         createdById: user.type === 'user' ? user.sub : null,
-        dueDate: parseOptionalDueDate(dto.dueDate) ?? null,
+        dueDate,
+        status: statusForDueDate(dueDate),
         cardId,
         groupId,
       },
@@ -1631,6 +1637,13 @@ export class RetrosService {
 
   private async getBoard(retroId: string, user: JwtPayload, forReport = false) {
     await this.collapseGroupedCardVotes(retroId);
+    const teamRef = await this.prisma.retrospective.findUnique({
+      where: { id: retroId },
+      select: { teamId: true },
+    });
+    if (!teamRef) throw new NotFoundException('Retrospective not found');
+    await this.expireOverdueForTeam(teamRef.teamId);
+
     const retro = await this.prisma.retrospective.findUnique({
       where: { id: retroId },
       include: boardInclude,
@@ -2346,6 +2359,17 @@ export class RetrosService {
     });
     if (!retro) throw new NotFoundException('Retrospective not found');
     return retro;
+  }
+
+  private async expireOverdueForTeam(teamId: string) {
+    const expired = await expireOverdueActions(this.prisma, { teamId });
+    for (const item of expired) {
+      const payload = serializeActionItem(item);
+      this.events.emitToTeam(teamId, 'action-updated', payload);
+      if (payload.retroId) {
+        this.events.emit(payload.retroId, 'action-updated', payload);
+      }
+    }
   }
 
   private async uniqueCode(kind: 'guest' | 'member'): Promise<string> {

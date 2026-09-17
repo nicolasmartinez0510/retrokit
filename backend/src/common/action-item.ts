@@ -102,3 +102,32 @@ export function parseOptionalDueDate(
   }
   return date;
 }
+
+/** Midnight UTC of the given instant (due dates are stored at noon UTC). */
+export function startOfUtcDay(date = new Date()): Date {
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
+}
+
+export function isDueDateOverdue(
+  dueDate: Date | null | undefined,
+  now = new Date(),
+): boolean {
+  if (!dueDate) return false;
+  return dueDate.getTime() < startOfUtcDay(now).getTime();
+}
+
+/** Pending/doing with a past due date become unmet; done stays done. */
+export function statusForDueDate(
+  dueDate: Date | null | undefined,
+  status: 'pending' | 'doing' | 'done' | 'unmet' = 'pending',
+): 'pending' | 'doing' | 'done' | 'unmet' {
+  if (
+    isDueDateOverdue(dueDate) &&
+    (status === 'pending' || status === 'doing')
+  ) {
+    return 'unmet';
+  }
+  return status;
+}
