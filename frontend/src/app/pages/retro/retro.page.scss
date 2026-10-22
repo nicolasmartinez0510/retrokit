@@ -38,7 +38,7 @@
   padding: 1rem 1rem 6.5rem;
 }
 
-.retro-scene.has-image {
+.retro-scene.has-theme {
   .header-actions {
     .btn-ghost,
     .btn-secondary,
@@ -357,6 +357,7 @@ app-phase-pills {
   font-weight: 400;
   color: var(--color-text-muted);
   line-height: 1.35;
+  min-height: calc(3 * 1.35em);
 }
 
 .panel {
@@ -518,20 +519,30 @@ app-phase-pills {
   }
 }
 
+.board-scroll {
+  max-width: 100%;
+}
+
 .board {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 0.85rem;
-  align-items: stretch;
+  --board-gap: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--board-gap);
+  width: 100%;
 }
 
 .column {
   display: flex;
   flex-direction: column;
+  flex: 0 0 calc((100% - 3 * var(--board-gap)) / 4);
+  width: calc((100% - 3 * var(--board-gap)) / 4);
+  max-width: calc((100% - 3 * var(--board-gap)) / 4);
+  min-width: 0;
   background: var(--color-sky-soft);
   border-radius: var(--radius);
   padding: 0.75rem;
-  min-height: 280px;
 
   header {
     display: flex;
@@ -541,6 +552,10 @@ app-phase-pills {
 
     h2 {
       font-size: 1rem;
+    }
+
+    > div {
+      min-width: 0;
     }
 
     .icon {
@@ -566,9 +581,9 @@ app-phase-pills {
 .cards {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   gap: 0.55rem;
-  min-height: 4.5rem;
+  min-height: 0;
   border-radius: var(--radius-sm);
   transition: background 0.15s ease, outline-color 0.15s ease;
 
@@ -576,6 +591,10 @@ app-phase-pills {
     background: color-mix(in srgb, var(--color-sky-mid) 28%, transparent);
     outline: 2px dashed color-mix(in srgb, var(--color-brand) 55%, transparent);
     outline-offset: 2px;
+  }
+
+  &.drop-pad {
+    min-height: 2.75rem;
   }
 }
 
@@ -982,7 +1001,6 @@ app-phase-pills {
 .composer {
   position: relative;
   z-index: 1;
-  margin-top: auto;
   padding-top: 0.75rem;
   display: flex;
   flex-direction: column;
@@ -1006,6 +1024,26 @@ app-phase-pills {
 .image-pick {
   cursor: pointer;
   margin: 0;
+
+  &.icon-only {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    svg {
+      width: 1.15rem;
+      height: 1.15rem;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+  }
 }
 
 .media-preview {
@@ -2025,6 +2063,9 @@ app-phase-pills {
   }
 
   .column {
+    flex-basis: 100%;
+    width: 100%;
+    max-width: 100%;
     margin-bottom: 4.25rem;
   }
 

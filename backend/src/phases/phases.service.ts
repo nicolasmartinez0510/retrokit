@@ -137,6 +137,8 @@ export class PhasesService {
       othersVisibility: (dto.othersVisibility ??
         existing.othersVisibility) as PhaseCapabilitiesInput['othersVisibility'],
       revealOnReady: dto.revealOnReady ?? existing.revealOnReady,
+      facilitatorSeesCards:
+        dto.facilitatorSeesCards ?? existing.facilitatorSeesCards,
       allowGrouping: dto.allowGrouping ?? existing.allowGrouping,
       allowCrossColumnGrouping:
         dto.allowCrossColumnGrouping ?? existing.allowCrossColumnGrouping,
@@ -205,6 +207,7 @@ export class PhasesService {
         anonymousCards: source.anonymousCards,
         othersVisibility: source.othersVisibility,
         revealOnReady: source.revealOnReady,
+        facilitatorSeesCards: source.facilitatorSeesCards,
         allowGrouping: source.allowGrouping,
         allowCrossColumnGrouping: source.allowCrossColumnGrouping,
         voting: source.voting,
@@ -297,6 +300,7 @@ export class PhasesService {
       othersVisibility: (dto.othersVisibility ??
         'visible') as PhaseCapabilitiesInput['othersVisibility'],
       revealOnReady: dto.revealOnReady ?? false,
+      facilitatorSeesCards: dto.facilitatorSeesCards ?? false,
       allowGrouping: dto.allowGrouping ?? false,
       allowCrossColumnGrouping: dto.allowCrossColumnGrouping ?? false,
       voting: (dto.voting ?? 'off') as PhaseCapabilitiesInput['voting'],
@@ -321,6 +325,7 @@ export class PhasesService {
       anonymousCards: caps.anonymousCards,
       othersVisibility: caps.othersVisibility as OthersVisibility,
       revealOnReady: caps.revealOnReady,
+      facilitatorSeesCards: caps.facilitatorSeesCards,
       allowGrouping: caps.allowGrouping,
       allowCrossColumnGrouping: caps.allowCrossColumnGrouping,
       voting: caps.voting as VotingMode,

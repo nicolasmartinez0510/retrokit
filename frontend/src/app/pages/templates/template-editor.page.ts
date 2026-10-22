@@ -12,6 +12,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { httpErrorMessage } from '../../core/http-error';
+import { randomId } from '../../core/id';
 import {
   isBlobUrl,
   isStagingUrl,
@@ -1216,7 +1217,7 @@ export class TemplateEditorPage implements OnInit, OnDestroy {
     null,
   );
   private keySeq = 0;
-  private sessionId: string = crypto.randomUUID();
+  private sessionId: string = randomId();
   private sessionDiscarded = false;
   /** Keep staging uploads alive when navigating to a phase and back. */
   private preserveStaging = false;
@@ -1599,7 +1600,7 @@ export class TemplateEditorPage implements OnInit, OnDestroy {
           void this.router.navigate(['/templates', tpl.id], { replaceUrl: true });
           return;
         }
-        this.sessionId = crypto.randomUUID();
+        this.sessionId = randomId();
         this.sessionDiscarded = false;
         this.applyTemplate(tpl);
         this.toast.ok('Plantilla guardada');
@@ -2109,7 +2110,7 @@ export class TemplateEditorPage implements OnInit, OnDestroy {
   }
 
   private applyDraft(draft: TemplateEditorDraft) {
-    this.sessionId = draft.sessionId || crypto.randomUUID();
+    this.sessionId = draft.sessionId || randomId();
     this.sessionDiscarded = false;
     this.name = draft.name ?? '';
     this.description = draft.description ?? '';

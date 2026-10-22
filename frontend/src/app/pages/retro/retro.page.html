@@ -448,16 +448,18 @@
           }
         }
         @if (showReady() && isParticipant()) {
-          <label class="ready-toggle" [class.locked]="readyLocked()">
-            <input
-              type="checkbox"
-              [checked]="meReady()"
-              [disabled]="readyLocked()"
-              (change)="toggleReady($any($event.target).checked)"
-              name="phaseReady"
-            />
-            Estoy listo
-          </label>
+          @for (phaseId of readyPhaseKey(); track phaseId) {
+            <label class="ready-toggle" [class.locked]="readyLocked()">
+              <input
+                type="checkbox"
+                [checked]="meReady()"
+                [disabled]="readyLocked()"
+                (change)="toggleReady($any($event.target).checked)"
+                [name]="'phaseReady-' + phaseId"
+              />
+              Estoy listo
+            </label>
+          }
         }
         @if (isActionPlan()) {
           <label class="chip-select">
@@ -687,6 +689,7 @@
           </section>
         </div>
       } @else if (isBoard()) {
+      <div class="board-scroll">
       <div class="board">
         @for (col of r.columns; track col.id) {
           <section class="column">
@@ -698,9 +701,7 @@
               }
               <div>
                 <h2>{{ col.title }}</h2>
-                @if (col.description) {
-                  <p class="col-desc">{{ col.description }}</p>
-                }
+                <p class="col-desc">{{ col.description }}</p>
               </div>
             </header>
             <div
@@ -714,6 +715,7 @@
               [cdkDropListEnterPredicate]="canEnterGroupDrop"
               (cdkDropListDropped)="onGroupDrop($event)"
               [class.drop-ungroup]="isColumnDropOver(col.id)"
+              [class.drop-pad]="canGroupDrag()"
               data-group-target
               [attr.data-group-kind]="'column'"
               [attr.data-column-id]="col.id"
@@ -845,8 +847,12 @@
                                     (picked)="insertEmojiIntoEdit($event, editTa)"
                                   />
                                   @if (showImageInput()) {
-                                    <label class="btn-ghost btn-sm image-pick">
-                                      Imagen / GIF
+                                    <label
+                                      class="btn-ghost btn-sm image-pick icon-only"
+                                      title="Imagen / GIF"
+                                      aria-label="Imagen / GIF"
+                                    >
+                                      <ng-container *ngTemplateOutlet="imagePickIcon" />
                                       <input
                                         type="file"
                                         hidden
@@ -858,8 +864,12 @@
                                 </div>
                               } @else if (showImageInput()) {
                                 <div class="composer-toolbar">
-                                  <label class="btn-ghost btn-sm image-pick">
-                                    Imagen / GIF
+                                  <label
+                                    class="btn-ghost btn-sm image-pick icon-only"
+                                    title="Imagen / GIF"
+                                    aria-label="Imagen / GIF"
+                                  >
+                                    <ng-container *ngTemplateOutlet="imagePickIcon" />
                                     <input
                                       type="file"
                                       hidden
@@ -989,8 +999,12 @@
                               (picked)="insertEmojiIntoEdit($event, editTa)"
                             />
                             @if (showImageInput()) {
-                              <label class="btn-ghost btn-sm image-pick">
-                                Imagen / GIF
+                              <label
+                                class="btn-ghost btn-sm image-pick icon-only"
+                                title="Imagen / GIF"
+                                aria-label="Imagen / GIF"
+                              >
+                                <ng-container *ngTemplateOutlet="imagePickIcon" />
                                 <input
                                   type="file"
                                   hidden
@@ -1002,8 +1016,12 @@
                           </div>
                         } @else if (showImageInput()) {
                           <div class="composer-toolbar">
-                            <label class="btn-ghost btn-sm image-pick">
-                              Imagen / GIF
+                            <label
+                              class="btn-ghost btn-sm image-pick icon-only"
+                              title="Imagen / GIF"
+                              aria-label="Imagen / GIF"
+                            >
+                              <ng-container *ngTemplateOutlet="imagePickIcon" />
                               <input
                                 type="file"
                                 hidden
@@ -1087,8 +1105,12 @@
                       (picked)="insertEmojiIntoDraft(col.id, $event, draftTa)"
                     />
                     @if (showImageInput()) {
-                      <label class="btn-ghost btn-sm image-pick">
-                        Imagen / GIF
+                      <label
+                        class="btn-ghost btn-sm image-pick icon-only"
+                        title="Imagen / GIF"
+                        aria-label="Imagen / GIF"
+                      >
+                        <ng-container *ngTemplateOutlet="imagePickIcon" />
                         <input
                           type="file"
                           hidden
@@ -1098,51 +1120,64 @@
                       </label>
                     }
                   </div>
-                } @else if (showImageInput()) {
-                  <div class="composer-toolbar">
-                    <label class="btn-ghost btn-sm image-pick">
-                      Imagen / GIF
+                  @if (draftPreview[col.id]) {
+                    <div class="media-preview">
+                      <img [src]="draftPreview[col.id]" alt="Vista previa" />
+                      <button
+                        type="button"
+                        class="btn-ghost btn-sm"
+                        (click)="clearDraftImage(col.id)"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  }
+                  @if (allowAnonymousComposer()) {
+                    <label class="anon">
                       <input
-                        type="file"
-                        hidden
-                        [accept]="imageAccept"
-                        (change)="onDraftFile(col.id, $event)"
+                        type="checkbox"
+                        [(ngModel)]="anonymousDraft[col.id]"
+                        [name]="'anon-' + col.id"
                       />
+                      Anónimo
                     </label>
-                  </div>
-                }
-                @if (draftPreview[col.id]) {
-                  <div class="media-preview">
-                    <img [src]="draftPreview[col.id]" alt="Vista previa" />
-                    <button
-                      type="button"
-                      class="btn-ghost btn-sm"
-                      (click)="clearDraftImage(col.id)"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                }
-                @if (allowAnonymousComposer()) {
-                  <label class="anon">
-                    <input type="checkbox" [(ngModel)]="anonymousDraft" name="anon" />
-                    Anónimo
+                  }
+                  <button
+                    type="button"
+                    class="btn-primary btn-sm"
+                    (click)="addCard(col.id)"
+                    [disabled]="!canSubmitComposer(col.id)"
+                  >
+                    Añadir
+                  </button>
+                } @else if (showImageInput()) {
+                  @if (allowAnonymousComposer()) {
+                    <label class="anon">
+                      <input
+                        type="checkbox"
+                        [(ngModel)]="anonymousDraft[col.id]"
+                        [name]="'anon-image-' + col.id"
+                      />
+                      Anónimo
+                    </label>
+                  }
+                  <label class="btn-primary btn-sm image-pick">
+                    Subir imagen / GIF
+                    <input
+                      type="file"
+                      hidden
+                      [accept]="imageAccept"
+                      (change)="onImageOnlyFile(col.id, $event)"
+                    />
                   </label>
                 }
-                <button
-                  type="button"
-                  class="btn-primary btn-sm"
-                  (click)="addCard(col.id)"
-                  [disabled]="!canSubmitComposer(col.id)"
-                >
-                  Añadir
-                </button>
               </div>
             } @else if (canCreateCards() && isParticipant() && !canComment()) {
               <p class="limit-msg">Límite de comentarios alcanzado</p>
             }
           </section>
         }
+      </div>
       </div>
       }
     }
@@ -1175,16 +1210,18 @@
           </div>
         }
         @if (showReady() && isParticipant()) {
-          <label class="ready-toggle" [class.locked]="readyLocked()">
-            <input
-              type="checkbox"
-              [checked]="meReady()"
-              [disabled]="readyLocked()"
-              (change)="toggleReady($any($event.target).checked)"
-              name="semaforoReady"
-            />
-            Estoy listo
-          </label>
+          @for (phaseId of readyPhaseKey(); track phaseId) {
+            <label class="ready-toggle" [class.locked]="readyLocked()">
+              <input
+                type="checkbox"
+                [checked]="meReady()"
+                [disabled]="readyLocked()"
+                (change)="toggleReady($any($event.target).checked)"
+                [name]="'semaforoReady-' + phaseId"
+              />
+              Estoy listo
+            </label>
+          }
         }
       </div>
 
@@ -1406,6 +1443,14 @@
     @if (copyToast(); as msg) {
       <div class="copy-toast" role="status" aria-live="polite">{{ msg }}</div>
     }
+
+    <ng-template #imagePickIcon>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3.5" y="5" width="17" height="14" rx="2" />
+        <circle cx="8.5" cy="10" r="1.25" fill="currentColor" stroke="none" />
+        <path d="M21 16.5 16.2 12a1.5 1.5 0 0 0-2 .1L8 18" />
+      </svg>
+    </ng-template>
 
     <ng-template #deleteBtn let-c>
       @if (editingCardId !== c.id && canDeleteCard(c)) {

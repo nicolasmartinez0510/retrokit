@@ -24,6 +24,7 @@ export interface PhaseCapabilitiesInput {
   anonymousCards: boolean;
   othersVisibility: OthersVisibility;
   revealOnReady: boolean;
+  facilitatorSeesCards: boolean;
   allowGrouping: boolean;
   allowCrossColumnGrouping: boolean;
   voting: VotingMode;
@@ -47,6 +48,7 @@ export interface PhaseCapabilityFlags {
   anonymousCards: boolean;
   othersVisibility: OthersVisibility;
   revealOnReady: boolean;
+  facilitatorSeesCards: boolean;
   allowGrouping: boolean;
   allowCrossColumnGrouping: boolean;
   voting: VotingMode;
@@ -110,6 +112,7 @@ const BOARD_DEFAULTS: Omit<PhaseCapabilitiesInput, 'kind'> = {
   anonymousCards: false,
   othersVisibility: 'visible',
   revealOnReady: false,
+  facilitatorSeesCards: false,
   allowGrouping: false,
   allowCrossColumnGrouping: false,
   voting: 'off',
@@ -137,6 +140,7 @@ export function normalizePhase<T extends PhaseCapabilitiesInput>(
     anonymousCards: input.anonymousCards,
     othersVisibility: input.othersVisibility,
     revealOnReady: input.revealOnReady,
+    facilitatorSeesCards: !!input.facilitatorSeesCards,
     allowGrouping: input.allowGrouping,
     allowCrossColumnGrouping: input.allowCrossColumnGrouping,
     voting: input.voting,
@@ -193,6 +197,10 @@ export function normalizePhase<T extends PhaseCapabilitiesInput>(
     } else {
       out.showReadyCheck = true;
     }
+  }
+
+  if (out.othersVisibility === 'visible') {
+    out.facilitatorSeesCards = false;
   }
 
   const canInteract =
@@ -258,6 +266,7 @@ export function phaseCapabilities(
       anonymousCards: false,
       othersVisibility: 'visible',
       revealOnReady: false,
+      facilitatorSeesCards: false,
       allowGrouping: false,
       allowCrossColumnGrouping: false,
       voting: 'off',
@@ -292,6 +301,8 @@ export function phaseCapabilities(
 
   if (phase.othersVisibility === 'visible') {
     disabledReasons['revealOnReady'] =
+      'Sólo aplica cuando las tarjetas de otros están borrosas u ocultas';
+    disabledReasons['facilitatorSeesCards'] =
       'Sólo aplica cuando las tarjetas de otros están borrosas u ocultas';
   }
 
@@ -348,6 +359,7 @@ export function phaseCapabilities(
     anonymousCards: phase.anonymousCards,
     othersVisibility: phase.othersVisibility,
     revealOnReady: phase.revealOnReady,
+    facilitatorSeesCards: phase.facilitatorSeesCards,
     allowGrouping: phase.allowGrouping,
     allowCrossColumnGrouping: phase.allowCrossColumnGrouping,
     voting: phase.voting,
@@ -428,6 +440,7 @@ export function snapshotPhaseFields(phase: {
   anonymousCards: boolean;
   othersVisibility: OthersVisibility;
   revealOnReady: boolean;
+  facilitatorSeesCards: boolean;
   allowGrouping: boolean;
   allowCrossColumnGrouping: boolean;
   voting: VotingMode;
@@ -457,6 +470,7 @@ export function snapshotPhaseFields(phase: {
     anonymousCards: normalized.anonymousCards,
     othersVisibility: normalized.othersVisibility,
     revealOnReady: normalized.revealOnReady,
+    facilitatorSeesCards: normalized.facilitatorSeesCards,
     allowGrouping: normalized.allowGrouping,
     allowCrossColumnGrouping: normalized.allowCrossColumnGrouping,
     voting: normalized.voting,

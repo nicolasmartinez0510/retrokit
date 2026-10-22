@@ -191,6 +191,7 @@ export interface PhaseCapabilities {
   anonymousCards: boolean;
   othersVisibility: OthersVisibility;
   revealOnReady: boolean;
+  facilitatorSeesCards: boolean;
   allowGrouping: boolean;
   allowCrossColumnGrouping: boolean;
   voting: VotingMode;

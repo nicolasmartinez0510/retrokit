@@ -45,6 +45,7 @@ export function phaseSummaryChips(p: Phase): string[] {
   }
   if (caps.othersVisibility === 'blurred') chips.push('borrosas');
   if (caps.othersVisibility === 'hidden') chips.push('oculta a otros');
+  if (caps.facilitatorSeesCards) chips.push('el facilitador las ve');
   if (caps.revealOnReady) chips.push('revela al marcar listo');
   if (caps.anonymousCards) chips.push('anónimas');
   if (caps.allowGrouping) {

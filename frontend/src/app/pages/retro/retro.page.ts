@@ -225,7 +225,7 @@ export class RetroPage implements OnInit, OnDestroy {
   draft: Record<string, string> = {};
   draftImage: Record<string, File | null> = {};
   draftPreview: Record<string, string | null> = {};
-  anonymousDraft = false;
+  anonymousDraft: Record<string, boolean> = {};
   editingCardId: string | null = null;
   editDraft = '';
   editAnonymous = false;
@@ -503,6 +503,9 @@ export class RetroPage implements OnInit, OnDestroy {
     if (this.isVotingPhase()) return !!me.votesReady;
     return !!me.commentsReady;
   });
+
+  /** New checkbox element per phase, so the previous tick does not stick. */
+  readyPhaseKey = computed(() => [this.currentPhase()?.id ?? 'none']);
 
   readyLocked = computed(() => {
     const r = this.retro();
@@ -1269,12 +1272,13 @@ export class RetroPage implements OnInit, OnDestroy {
       .createCard(r.id, {
         columnId,
         content,
-        isAnonymous: this.anonymousDraft,
+        isAnonymous: !!this.anonymousDraft[columnId],
         image,
       })
       .subscribe({
         next: () => {
           this.draft[columnId] = '';
+          this.anonymousDraft[columnId] = false;
           this.clearDraftImage(columnId);
           this.reload(r.id);
         },
@@ -1312,6 +1316,15 @@ export class RetroPage implements OnInit, OnDestroy {
     const file = input.files?.[0] ?? null;
     input.value = '';
     this.setDraftImage(columnId, file);
+  }
+
+  onImageOnlyFile(columnId: string, event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file) return;
+    this.setDraftImage(columnId, file);
+    if (this.draftImage[columnId]) this.addCard(columnId);
   }
 
   onDraftPaste(columnId: string, event: ClipboardEvent) {

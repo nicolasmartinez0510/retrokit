@@ -110,6 +110,10 @@ export class CreatePhaseDto {
 
   @IsOptional()
   @IsBoolean()
+  facilitatorSeesCards?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   allowGrouping?: boolean;
 
   @IsOptional()
@@ -227,6 +231,10 @@ export class UpdatePhaseDto {
   @IsOptional()
   @IsBoolean()
   revealOnReady?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  facilitatorSeesCards?: boolean;
 
   @IsOptional()
   @IsBoolean()

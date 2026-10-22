@@ -1784,7 +1784,11 @@ export class RetrosService {
 
     // Others' cards may be visible, blurred or hidden depending on the phase.
     const othersVisibility =
-      forReport || facilitator || !caps ? 'visible' : caps.othersVisibility;
+      forReport || !caps
+        ? 'visible'
+        : facilitator && caps.facilitatorSeesCards
+          ? 'visible'
+          : caps.othersVisibility;
     const revealOnReady = !!caps?.revealOnReady;
     const forceAnonymous = !forReport && !!caps?.anonymousCards;
     const hideCounts =

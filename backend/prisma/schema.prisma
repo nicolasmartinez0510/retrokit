@@ -163,6 +163,8 @@ model Phase {
   anonymousCards           Boolean          @default(false)
   othersVisibility         OthersVisibility @default(visible)
   revealOnReady            Boolean          @default(false)
+  /// When cards are blurred or hidden, the facilitator can still read them.
+  facilitatorSeesCards     Boolean          @default(false)
   allowGrouping            Boolean          @default(false)
   allowCrossColumnGrouping Boolean          @default(false)
   voting                   VotingMode       @default(off)
@@ -295,6 +297,8 @@ model RetroPhase {
   anonymousCards           Boolean                   @default(false)
   othersVisibility         OthersVisibility          @default(visible)
   revealOnReady            Boolean                   @default(false)
+  /// When cards are blurred or hidden, the facilitator can still read them.
+  facilitatorSeesCards     Boolean                   @default(false)
   allowGrouping            Boolean                   @default(false)
   allowCrossColumnGrouping Boolean                   @default(false)
   voting                   VotingMode                @default(off)

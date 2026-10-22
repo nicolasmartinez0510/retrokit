@@ -108,6 +108,7 @@ function emptyForm(): PhaseForm {
     anonymousCards: false,
     othersVisibility: 'visible',
     revealOnReady: false,
+    facilitatorSeesCards: false,
     allowGrouping: false,
     allowCrossColumnGrouping: false,
     voting: 'off',
@@ -509,6 +510,19 @@ function emptyForm(): PhaseForm {
                 Revelar las de cada persona cuando marca “listo”
               </label>
               @if (why('revealOnReady'); as w) {
+                <p class="why">ⓘ {{ w }}</p>
+              }
+              <label class="check" [class.off]="!!why('facilitatorSeesCards')">
+                <input
+                  type="checkbox"
+                  name="facilitatorSeesCards"
+                  [checked]="caps().facilitatorSeesCards"
+                  [disabled]="readOnly() || !!why('facilitatorSeesCards')"
+                  (change)="patch({ facilitatorSeesCards: checked($event) })"
+                />
+                El facilitador puede ver las tarjetas ocultas o borrosas
+              </label>
+              @if (why('facilitatorSeesCards'); as w) {
                 <p class="why">ⓘ {{ w }}</p>
               }
               <label class="check" [class.off]="!!why('anonymousCards')">
@@ -1555,6 +1569,7 @@ export class PhaseEditorPage implements OnInit {
       anonymousCards: n.anonymousCards,
       othersVisibility: n.othersVisibility,
       revealOnReady: n.revealOnReady,
+      facilitatorSeesCards: n.facilitatorSeesCards,
       allowGrouping: n.allowGrouping,
       allowCrossColumnGrouping: n.allowCrossColumnGrouping,
       voting: n.voting,
@@ -1589,6 +1604,7 @@ export class PhaseEditorPage implements OnInit {
       anonymousCards: p.anonymousCards,
       othersVisibility: p.othersVisibility,
       revealOnReady: p.revealOnReady,
+      facilitatorSeesCards: p.facilitatorSeesCards,
       allowGrouping: p.allowGrouping,
       allowCrossColumnGrouping: p.allowCrossColumnGrouping,
       voting: p.voting,
