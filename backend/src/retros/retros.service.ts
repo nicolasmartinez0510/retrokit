@@ -1663,8 +1663,9 @@ export class RetrosService {
     const hiddenColumnIds = new Set(
       currentPhase?.hiddenColumns.map((h) => h.columnId) ?? [],
     );
-    // Facilitator (and the report) sees every column; participants only the visible ones.
-    const filterHidden = !forReport && !facilitator && hiddenColumnIds.size > 0;
+    // The report is a summary of the whole retro. On the live board, a phase
+    // shows only the columns the template left visible, facilitator included.
+    const filterHidden = !forReport && hiddenColumnIds.size > 0;
     const columns = filterHidden
       ? retro.columns.filter((c) => !hiddenColumnIds.has(c.id))
       : retro.columns;
