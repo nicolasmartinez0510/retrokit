@@ -33,6 +33,34 @@ export class RetroPhaseSelectionDto {
   @IsInt()
   @Min(0)
   position!: number;
+
+  /** Null = unlimited in this phase. Omitted = seed from the phase or template. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxCardsPerParticipant?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  votesPerParticipant?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxVotesPerCard?: number;
+
+  /** Ignored when the catalog phase has no timer. */
+  @IsOptional()
+  @IsInt()
+  @Min(60)
+  @Max(1800)
+  timerSeconds?: number | null;
+
+  @IsOptional()
+  @Transform(toOptionalBoolean)
+  @IsBoolean()
+  allowCrossColumnGrouping?: boolean;
 }
 
 export class SemaforoItemInputDto {
@@ -138,6 +166,11 @@ export class UpdateSettingsDto {
   @IsInt()
   @Min(30)
   timerSeconds?: number | null;
+
+  /** Phase snapshot these limits apply to. Absent = retro-wide fields only. */
+  @IsOptional()
+  @IsString()
+  phaseId?: string;
 }
 
 export class JoinRetroDto {

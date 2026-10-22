@@ -91,6 +91,7 @@
                 />
               </svg>
             </button>
+            @if (phaseHasTimer()) {
             <div class="timer-controls">
               <span class="timer">{{ formatTime(timerDisplaySeconds()) }}</span>
               @if (isTimerRunning()) {
@@ -166,13 +167,19 @@
                   </svg>
                 </button>
               }
-              <select [(ngModel)]="timerSeconds" name="timerPreset" class="timer-select">
+              <select
+                [ngModel]="timerSeconds"
+                (ngModelChange)="onTimerDuration($event)"
+                name="timerPreset"
+                class="timer-select"
+              >
                 @for (opt of timerPresets; track opt.value) {
                   <option [ngValue]="opt.value">{{ opt.label }}</option>
                 }
               </select>
             </div>
-          } @else if (timerLeft() !== null || r.timerPausedRemaining != null) {
+            }
+          } @else if (phaseHasTimer() && (timerLeft() !== null || r.timerPausedRemaining != null)) {
             <span class="timer">{{ formatTime(timerLeft() ?? r.timerPausedRemaining!) }}</span>
           }
         } @else if (!isClosed()) {
@@ -292,40 +299,68 @@
         (click)="showSettings = false"
       >
         <div class="card join-modal settings-modal" (click)="$event.stopPropagation()">
-          <h2 id="settings-modal-title">Ajustes de facilitación</h2>
+          <h2 id="settings-modal-title">
+            Ajustes · {{ currentPhase()?.name || 'Fase' }}
+          </h2>
           <div class="settings-grid">
-            <div class="field">
-              <label>Máx. comentarios</label>
-              <input type="number" [(ngModel)]="maxComments" name="maxComments" />
-            </div>
-            <div class="field">
-              <label>Votos por persona</label>
-              <input type="number" [(ngModel)]="votesPerParticipant" name="votesPP" />
-            </div>
-            <div class="field">
-              <label>Máx. votos / tarjeta</label>
-              <input type="number" [(ngModel)]="maxVotesPerCard" name="maxV" />
-            </div>
-            <div class="field">
-              <label>Duración del timer</label>
-              <select [(ngModel)]="timerSeconds" name="timerSec">
-                @for (opt of timerPresets; track opt.value) {
-                  <option [ngValue]="opt.value">{{ opt.label }}</option>
-                }
-              </select>
-            </div>
+            @if (caps()?.allowCreateCards) {
+              <div class="field">
+                <label>Máx. comentarios</label>
+                <input
+                  type="number"
+                  min="1"
+                  [(ngModel)]="maxComments"
+                  name="maxComments"
+                  placeholder="Ilimitado"
+                />
+              </div>
+            }
+            @if (caps()?.voting && caps()?.voting !== 'off') {
+              <div class="field">
+                <label>Votos por persona</label>
+                <input
+                  type="number"
+                  min="1"
+                  [(ngModel)]="votesPerParticipant"
+                  name="votesPP"
+                />
+              </div>
+            }
+            @if (caps()?.voting === 'multi') {
+              <div class="field">
+                <label>Máx. votos / tarjeta</label>
+                <input
+                  type="number"
+                  min="1"
+                  [(ngModel)]="maxVotesPerCard"
+                  name="maxV"
+                />
+              </div>
+            }
+            @if (phaseHasTimer()) {
+              <div class="field">
+                <label>Duración del timer</label>
+                <select [(ngModel)]="timerSeconds" name="timerSec">
+                  @for (opt of timerPresets; track opt.value) {
+                    <option [ngValue]="opt.value">{{ opt.label }}</option>
+                  }
+                </select>
+              </div>
+            }
           </div>
-          <label class="check">
-            <input
-              type="checkbox"
-              [(ngModel)]="allowCrossColumnGrouping"
-              name="crossCol"
-            />
-            Permitir agrupar tarjetas entre columnas
-          </label>
-          <p class="field-hint">
-            Las columnas son temas distintos; activá esto solo si el equipo quiere mezclarlas.
-          </p>
+          @if (caps()?.allowGrouping) {
+            <label class="check">
+              <input
+                type="checkbox"
+                [(ngModel)]="allowCrossColumnGrouping"
+                name="crossCol"
+              />
+              Permitir agrupar tarjetas entre columnas
+            </label>
+            <p class="field-hint">
+              Las columnas son temas distintos; activá esto solo si el equipo quiere mezclarlas.
+            </p>
+          }
           <div class="join-modal-actions row">
             <button type="button" class="btn-ghost btn-sm" (click)="showSettings = false">
               Cerrar
@@ -380,7 +415,7 @@
         @if (isVotingPhase()) {
           @if (isParticipant()) {
             <span class="meta-stat">
-              Tus votos: {{ usedVoteTotal() }} / {{ r.votesPerParticipant }}
+              Tus votos: {{ usedVoteTotal() }} / {{ voteBudget() }}
             </span>
           }
           @if (r.voteProgress; as progress) {
@@ -1433,12 +1468,12 @@
             </button>
           } @else {
             <button type="button" class="btn-ghost btn-sm" (click)="changeVote(c, -1); $event.stopPropagation()">−</button>
-            <span>{{ myVotesOn(c) }} / {{ r.maxVotesPerCard }}</span>
+            <span>{{ myVotesOn(c) }} / {{ cardVoteCap() }}</span>
             <button
               type="button"
               class="btn-ghost btn-sm"
               (click)="changeVote(c, 1); $event.stopPropagation()"
-              [disabled]="myVotesOn(c) >= r.maxVotesPerCard || votesRemaining() <= 0"
+              [disabled]="myVotesOn(c) >= cardVoteCap() || votesRemaining() <= 0"
             >+</button>
           }
         } @else if ((isVotingPhase() || isActionPlan()) && !voteCountsHidden()) {

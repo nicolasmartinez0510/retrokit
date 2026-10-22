@@ -24,6 +24,7 @@ import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { parseAvatarChanged } from '../../core/avatars';
 import { httpErrorMessage } from '../../core/http-error';
+import { randomId } from '../../core/id';
 import {
   ActionAssigneeOption,
   ActionItem,
@@ -37,7 +38,11 @@ import {
   SemaforoItem,
   SemaforoValue,
 } from '../../core/models';
-import { resolveMaxCards, semaforoEmojiMap } from '../../core/phase-rules';
+import {
+  PHASE_TIMER_PRESETS,
+  resolveMaxCards,
+  semaforoEmojiMap,
+} from '../../core/phase-rules';
 import { formatDueDate } from '../../core/dates';
 import {
   PhasePillItem,
@@ -280,11 +285,9 @@ export class RetroPage implements OnInit, OnDestroy {
   maxVotesPerCard = 2;
   timerSeconds = 300;
   allowCrossColumnGrouping = false;
-  readonly timerPresets = [
-    { value: 300, label: '5 min' },
-    { value: 600, label: '10 min' },
-    { value: 900, label: '15 min' },
-  ];
+  /** Phase whose limits the settings modal is editing. */
+  settingsPhaseId: string | null = null;
+  readonly timerPresets = PHASE_TIMER_PRESETS;
 
   // ---------------------------------------------------------------------------
   // Phase engine
@@ -344,11 +347,20 @@ export class RetroPage implements OnInit, OnDestroy {
     () => this.caps()?.cardContent ?? 'text_and_image',
   );
   effectiveMaxCards = computed(() =>
-    resolveMaxCards(
-      this.caps()?.maxCardsPerParticipant,
-      this.retro()?.maxCommentsPerParticipant ?? null,
-    ),
+    resolveMaxCards(this.caps()?.maxCardsPerParticipant),
   );
+  phaseHasTimer = computed(() => this.currentPhase()?.timerSeconds != null);
+  voteBudget = computed(() => {
+    const phase = this.currentPhase();
+    if (!phase || phase.voting === 'off') return 0;
+    return phase.votesPerParticipant ?? 0;
+  });
+  cardVoteCap = computed(() => {
+    const phase = this.currentPhase();
+    if (phase?.voting === 'single') return 1;
+    if (phase?.voting === 'multi') return phase.maxVotesPerCard ?? 1;
+    return 1;
+  });
   allowAnonymousComposer = computed(
     () => !!this.retro()?.allowAnonymous && this.canCreateCards(),
   );
@@ -434,7 +446,11 @@ export class RetroPage implements OnInit, OnDestroy {
 
   toggleSettings() {
     this.showSettings = !this.showSettings;
-    if (this.showSettings) this.showInvite = false;
+    if (this.showSettings) {
+      this.showInvite = false;
+      this.settingsPhaseId = this.currentPhase()?.id ?? null;
+      this.syncSettingsForm();
+    }
   }
 
   isParticipant = computed(() => !!this.retro()?.me?.participantId);
@@ -492,7 +508,7 @@ export class RetroPage implements OnInit, OnDestroy {
     const r = this.retro();
     if (!r?.me?.participantId) return true;
     if (this.isVotingPhase()) {
-      return this.usedVoteTotal() >= r.votesPerParticipant;
+      return this.usedVoteTotal() >= this.voteBudget();
     }
     if (this.canCreateCards()) {
       const max = this.effectiveMaxCards();
@@ -576,7 +592,7 @@ export class RetroPage implements OnInit, OnDestroy {
     const now = Date.now();
     if (now - this.lastLocalConfettiAt < 1000) return;
     this.lastLocalConfettiAt = now;
-    const id = crypto.randomUUID();
+    const id = randomId();
     this.localConfettiIds.add(id);
     window.setTimeout(() => this.localConfettiIds.delete(id), 4000);
     this.playConfetti();
@@ -605,11 +621,7 @@ export class RetroPage implements OnInit, OnDestroy {
           this.lastPresentIndex = -1;
         }
         this.applyPhaseSortDefaults(r);
-        this.maxComments = r.maxCommentsPerParticipant;
-        this.votesPerParticipant = r.votesPerParticipant;
-        this.maxVotesPerCard = r.maxVotesPerCard;
-        this.timerSeconds = r.timerSeconds ?? 300;
-        this.allowCrossColumnGrouping = !!r.allowCrossColumnGrouping;
+        if (!this.showSettings) this.syncSettingsForm();
         this.syncTimer(r.timerEndsAt);
         this.maybeShowJoinModal(r);
         this.syncPresenceIdentity(r);
@@ -1194,9 +1206,11 @@ export class RetroPage implements OnInit, OnDestroy {
     const r = this.retro();
     const pid = r?.me?.participantId;
     if (!r || !pid) return 0;
+    const phaseId = this.currentPhase()?.id;
     const v = r.votes.find(
       (x) =>
         x.participantId === pid &&
+        x.retroPhaseId === phaseId &&
         (card.groupId ? x.groupId === card.groupId : x.cardId === card.id),
     );
     return v?.count ?? 0;
@@ -1215,8 +1229,9 @@ export class RetroPage implements OnInit, OnDestroy {
     const groupedCardIds = new Set(
       r.cards.filter((c) => c.groupId).map((c) => c.id),
     );
+    const phaseId = this.currentPhase()?.id;
     return r.votes
-      .filter((v) => v.participantId === participantId)
+      .filter((v) => v.participantId === participantId && v.retroPhaseId === phaseId)
       .filter((v) => !v.cardId || !groupedCardIds.has(v.cardId))
       .reduce((s, v) => s + v.count, 0);
   }
@@ -1233,7 +1248,7 @@ export class RetroPage implements OnInit, OnDestroy {
   votesRemaining(): number {
     const r = this.retro();
     if (!r) return 0;
-    return Math.max(0, r.votesPerParticipant - this.usedVoteTotal());
+    return Math.max(0, this.voteBudget() - this.usedVoteTotal());
   }
 
   canSubmitComposer(columnId: string): boolean {
@@ -1553,8 +1568,8 @@ export class RetroPage implements OnInit, OnDestroy {
       next = current > 0 ? 0 : 1;
     } else {
       next = Math.max(0, current + delta);
-      if (next > r.maxVotesPerCard) {
-        this.error.set(`Máximo ${r.maxVotesPerCard} votos por tarjeta`);
+      if (next > this.cardVoteCap()) {
+        this.error.set(`Máximo ${this.cardVoteCap()} votos por tarjeta`);
         return;
       }
     }
@@ -1643,16 +1658,33 @@ export class RetroPage implements OnInit, OnDestroy {
     });
   }
 
+  private syncSettingsForm() {
+    const pinned = this.showSettings
+      ? this.retro()?.phases.find((p) => p.id === this.settingsPhaseId)
+      : null;
+    const phase = pinned ?? this.currentPhase();
+    this.maxComments = phase?.maxCardsPerParticipant ?? null;
+    this.votesPerParticipant = phase?.votesPerParticipant ?? 5;
+    this.maxVotesPerCard =
+      phase?.voting === 'single' ? 1 : (phase?.maxVotesPerCard ?? 2);
+    this.allowCrossColumnGrouping = !!phase?.allowCrossColumnGrouping;
+    this.timerSeconds = phase?.timerSeconds ?? this.timerSeconds;
+  }
+
   saveSettings() {
     const r = this.retro();
     if (!r) return;
+    const phaseId = this.settingsPhaseId ?? this.currentPhase()?.id;
     this.api
       .updateSettings(r.id, {
+        phaseId,
         maxCommentsPerParticipant: this.maxComments,
         votesPerParticipant: this.votesPerParticipant,
         maxVotesPerCard: this.maxVotesPerCard,
-        timerSeconds: this.timerSeconds,
-        allowCrossColumnGrouping: this.allowCrossColumnGrouping,
+        ...(this.phaseHasTimer() ? { timerSeconds: this.timerSeconds } : {}),
+        ...(this.caps()?.allowGrouping
+          ? { allowCrossColumnGrouping: this.allowCrossColumnGrouping }
+          : {}),
       })
       .subscribe({
         next: () => {
@@ -1670,6 +1702,21 @@ export class RetroPage implements OnInit, OnDestroy {
       return;
     }
     this.startTimer();
+  }
+
+  onTimerDuration(seconds: number) {
+    this.timerSeconds = Number(seconds);
+    if (this.showSettings) return;
+    const r = this.retro();
+    const phaseId = this.currentPhase()?.id;
+    if (!r || !phaseId || !this.phaseHasTimer()) return;
+    this.api
+      .updateSettings(r.id, { phaseId, timerSeconds: this.timerSeconds })
+      .subscribe({
+        next: () => this.reload(r.id),
+        error: (e) =>
+          this.error.set(e?.error?.message || 'No se pudo guardar el timer'),
+      });
   }
 
   startTimer() {

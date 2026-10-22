@@ -454,7 +454,7 @@ function emptyForm(): PhaseForm {
                     (ngModelChange)="patch({ maxCardsPerParticipant: intOrNull($event) })"
                     placeholder="—"
                   />
-                  <span class="hint">vacío = el de la retro</span>
+                  <span class="hint">vacío = el de la plantilla al crear la retro</span>
                 </div>
                 @if (why('cardContent'); as w) {
                   <p class="why">ⓘ {{ w }}</p>
@@ -542,6 +542,7 @@ function emptyForm(): PhaseForm {
               @if (why('allowGrouping'); as w) {
                 <p class="why">ⓘ {{ w }}</p>
               }
+              @if (caps().allowGrouping) {
               <div class="sub">
                 <label
                   class="check"
@@ -560,6 +561,7 @@ function emptyForm(): PhaseForm {
                   <p class="why">ⓘ {{ w }}</p>
                 }
               </div>
+              }
 
               <div class="field inline" [class.off]="!!why('voting')">
                 <label>Votación</label>

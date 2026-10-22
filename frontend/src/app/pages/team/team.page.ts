@@ -17,6 +17,7 @@ import { Phase, RetroSummary, TeamDetail, Template } from '../../core/models';
 import {
   DEFAULT_CLASSIC_PHASE_IDS,
   DEFAULT_SEMAFORO_ITEMS,
+  PHASE_TIMER_PRESETS,
 } from '../../core/phase-rules';
 import { SocketService } from '../../core/socket.service';
 import { ToastService } from '../../core/toast.service';
@@ -27,6 +28,30 @@ import {
 import { UserAvatarComponent } from '../../shared/user-avatar.component';
 
 const MAX_SEMAFORO_ITEMS = 8;
+
+interface RetroPhaseDraft {
+  phaseId: string;
+  phase: Phase;
+  maxCardsPerParticipant: number | null;
+  votesPerParticipant: number;
+  maxVotesPerCard: number;
+  timerSeconds: number | null;
+  allowCrossColumnGrouping: boolean;
+}
+
+function limitsFor(phase: Phase, tpl: Template | null) {
+  return {
+    maxCardsPerParticipant:
+      phase.maxCardsPerParticipant ?? tpl?.maxCommentsPerParticipant ?? null,
+    votesPerParticipant: tpl?.votesPerParticipant ?? 5,
+    maxVotesPerCard:
+      phase.voting === 'single' ? 1 : (tpl?.maxVotesPerCard ?? 2),
+    timerSeconds: phase.timerSeconds ?? null,
+    allowCrossColumnGrouping: phase.allowGrouping
+      ? phase.allowCrossColumnGrouping
+      : false,
+  };
+}
 
 @Component({
   selector: 'app-team-page',
@@ -243,11 +268,106 @@ const MAX_SEMAFORO_ITEMS = 8;
               <app-phase-pills
                 mode="edit"
                 [phases]="pillPhases()"
+                [selectedId]="selectedPhaseId()"
                 [showAdd]="availablePhases().length > 0"
                 (phasesChange)="onPhasesChange($event)"
+                (select)="togglePhase($event)"
                 (remove)="onPhaseRemoved($event)"
                 (addPhase)="showAddPhases.set(!showAddPhases())"
               />
+              @if (selectedDraft(); as sel) {
+                <div class="phase-settings">
+                  <h3>{{ sel.phase.name }}</h3>
+                  @if (
+                    !sel.phase.allowCreateCards &&
+                    sel.phase.voting === 'off' &&
+                    sel.phase.timerSeconds == null &&
+                    !sel.phase.allowGrouping
+                  ) {
+                    <p class="template-hint">
+                      Esta fase no usa comentarios, votos ni timer.
+                    </p>
+                  }
+                  @if (sel.phase.allowCreateCards) {
+                    <div class="field">
+                      <label>Máx. comentarios / persona</label>
+                      <input
+                        type="number"
+                        min="1"
+                        name="phaseMaxCards"
+                        placeholder="Ilimitado"
+                        [ngModel]="sel.maxCardsPerParticipant"
+                        (ngModelChange)="
+                          patchDraft({
+                            maxCardsPerParticipant: intOrNull($event),
+                          })
+                        "
+                      />
+                    </div>
+                  }
+                  @if (sel.phase.voting !== 'off') {
+                    <div class="field">
+                      <label>Votos por persona</label>
+                      <input
+                        type="number"
+                        min="1"
+                        name="phaseVotes"
+                        [ngModel]="sel.votesPerParticipant"
+                        (ngModelChange)="
+                          patchDraft({ votesPerParticipant: positiveInt($event, 1) })
+                        "
+                      />
+                    </div>
+                  }
+                  @if (sel.phase.voting === 'multi') {
+                    <div class="field">
+                      <label>Máx. votos por tarjeta</label>
+                      <input
+                        type="number"
+                        min="1"
+                        name="phaseMaxVotes"
+                        [ngModel]="sel.maxVotesPerCard"
+                        (ngModelChange)="
+                          patchDraft({ maxVotesPerCard: positiveInt($event, 1) })
+                        "
+                      />
+                    </div>
+                  }
+                  @if (sel.phase.timerSeconds != null) {
+                    <div class="field">
+                      <label>Timer</label>
+                      <select
+                        name="phaseTimer"
+                        [ngModel]="sel.timerSeconds"
+                        (ngModelChange)="
+                          patchDraft({ timerSeconds: positiveInt($event, 300) })
+                        "
+                      >
+                        @for (opt of timerPresets; track opt.value) {
+                          <option [ngValue]="opt.value">{{ opt.label }}</option>
+                        }
+                      </select>
+                    </div>
+                  }
+                  @if (sel.phase.allowGrouping) {
+                    <label class="check">
+                      <input
+                        type="checkbox"
+                        name="phaseCrossCol"
+                        [ngModel]="sel.allowCrossColumnGrouping"
+                        (ngModelChange)="
+                          patchDraft({ allowCrossColumnGrouping: $event })
+                        "
+                      />
+                      Permitir agrupar tarjetas entre columnas
+                    </label>
+                    <p class="template-hint">
+                      Las columnas son temas distintos; activá esto solo si el equipo
+                      quiere mezclarlas.
+                    </p>
+                  }
+                </div>
+              }
               @if (showAddPhases() && availablePhases().length) {
                 <div class="add-phase-chips">
                   <span class="add-phase-label">Agregar fase:</span>
@@ -373,65 +493,10 @@ const MAX_SEMAFORO_ITEMS = 8;
               <span>Opciones</span>
             </button>
             @if (showAdvancedOptions()) {
-            <div class="settings-grid">
-              <div class="field">
-                <label>Máx. comentarios / persona</label>
-                <input
-                  type="number"
-                  [(ngModel)]="maxComments"
-                  name="maxComments"
-                  min="1"
-                />
-              </div>
-              <div class="field">
-                <label>Votos por persona</label>
-                <input
-                  type="number"
-                  [(ngModel)]="votesPerParticipant"
-                  name="votes"
-                  min="1"
-                />
-              </div>
-              <div class="field">
-                <label>Máx. votos por tarjeta</label>
-                <input
-                  type="number"
-                  [(ngModel)]="maxVotesPerCard"
-                  name="maxVotes"
-                  min="1"
-                  [disabled]="hasSingleVotePhase()"
-                />
-                @if (hasSingleVotePhase()) {
-                  <p class="template-hint">
-                    Hay una fase con voto único: máx. 1 voto por tarjeta.
-                  </p>
-                }
-              </div>
-              <div class="field">
-                <label>Timer por defecto</label>
-                <select [(ngModel)]="timerSeconds" name="timerSeconds">
-                  <option [ngValue]="300">5 min</option>
-                  <option [ngValue]="600">10 min</option>
-                  <option [ngValue]="900">15 min</option>
-                </select>
-              </div>
-            </div>
             <label class="check">
               <input type="checkbox" [(ngModel)]="allowAnonymous" name="anon" />
               Permitir comentarios anónimos
             </label>
-            <label class="check">
-              <input
-                type="checkbox"
-                [(ngModel)]="allowCrossColumnGrouping"
-                name="crossCol"
-              />
-              Permitir agrupar tarjetas entre columnas
-            </label>
-            <p class="template-hint">
-              Las columnas son temas distintos; activá esto solo si el equipo
-              quiere mezclarlas.
-            </p>
             }
 
             @if (error()) {
@@ -645,6 +710,19 @@ const MAX_SEMAFORO_ITEMS = 8;
       display: flex;
       flex-direction: column;
       gap: 0.55rem;
+    }
+    .phase-settings {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      padding: 0.85rem 0.95rem;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+      h3 {
+        margin: 0;
+        font-size: 0.95rem;
+      }
     }
     .phases-header {
       display: flex;
@@ -862,7 +940,9 @@ export class TeamPage implements OnInit, OnDestroy {
   team = signal<TeamDetail | null>(null);
   templates = signal<Template[]>([]);
   phaseCatalog = signal<Phase[]>([]);
-  retroPhases = signal<{ phaseId: string; phase: Phase }[]>([]);
+  retroPhases = signal<RetroPhaseDraft[]>([]);
+  selectedPhaseId = signal<string | null>(null);
+  readonly timerPresets = PHASE_TIMER_PRESETS;
   retroSemaforoItems = signal<{ title: string; description: string }[]>([]);
   showAddPhases = signal(false);
   showSemaforoItems = signal(false);
@@ -871,12 +951,7 @@ export class TeamPage implements OnInit, OnDestroy {
   readonly maxSemaforoItems = MAX_SEMAFORO_ITEMS;
   title = '';
   templateId = '';
-  maxComments: number | null = 3;
-  votesPerParticipant = 5;
-  maxVotesPerCard = 2;
-  timerSeconds = 300;
   allowAnonymous = true;
-  allowCrossColumnGrouping = false;
   error = signal('');
   showCreateModal = signal(false);
   renamingId = signal<string | null>(null);
@@ -904,8 +979,10 @@ export class TeamPage implements OnInit, OnDestroy {
     ),
   );
 
-  readonly hasSingleVotePhase = computed(() =>
-    this.retroPhases().some((p) => p.phase.voting === 'single'),
+  readonly selectedDraft = computed(
+    () =>
+      this.retroPhases().find((p) => p.phaseId === this.selectedPhaseId()) ??
+      null,
   );
 
   retroPhaseLabel(r: RetroSummary) {
@@ -934,12 +1011,9 @@ export class TeamPage implements OnInit, OnDestroy {
 
   applyDefaults(tpl: Template | null) {
     if (!tpl) return;
-    this.maxComments = tpl.maxCommentsPerParticipant ?? null;
-    this.votesPerParticipant = tpl.votesPerParticipant ?? 5;
-    this.maxVotesPerCard = tpl.maxVotesPerCard ?? 2;
     this.seedPhasesFromTemplate(tpl);
     this.seedSemaforoFromTemplate(tpl);
-    this.syncMaxVotesFromPhases();
+    this.selectedPhaseId.set(null);
     this.showAddPhases.set(false);
   }
 
@@ -948,7 +1022,7 @@ export class TeamPage implements OnInit, OnDestroy {
     if (!tpl) return;
     this.seedPhasesFromTemplate(tpl);
     this.seedSemaforoFromTemplate(tpl);
-    this.syncMaxVotesFromPhases();
+    this.selectedPhaseId.set(null);
     this.showAddPhases.set(false);
   }
 
@@ -958,15 +1032,18 @@ export class TeamPage implements OnInit, OnDestroy {
         tpl.phases.map((link) => ({
           phaseId: link.phaseId,
           phase: link.phase,
+          ...limitsFor(link.phase, tpl),
         })),
       );
       return;
     }
     const catalog = this.phaseCatalog();
-    const seeded: { phaseId: string; phase: Phase }[] = [];
+    const seeded: RetroPhaseDraft[] = [];
     for (const id of DEFAULT_CLASSIC_PHASE_IDS) {
       const phase = catalog.find((p) => p.id === id);
-      if (phase) seeded.push({ phaseId: id, phase });
+      if (phase) {
+        seeded.push({ phaseId: id, phase, ...limitsFor(phase, tpl) });
+      }
     }
     this.retroPhases.set(seeded);
   }
@@ -1004,10 +1081,29 @@ export class TeamPage implements OnInit, OnDestroy {
     this.showSemaforoItems.set(false);
   }
 
-  private syncMaxVotesFromPhases() {
-    if (this.hasSingleVotePhase()) {
-      this.maxVotesPerCard = 1;
-    }
+  togglePhase(id: string) {
+    this.selectedPhaseId.set(this.selectedPhaseId() === id ? null : id);
+  }
+
+  patchDraft(partial: Partial<RetroPhaseDraft>) {
+    const id = this.selectedPhaseId();
+    if (!id) return;
+    this.retroPhases.update((list) =>
+      list.map((p) => (p.phaseId === id ? { ...p, ...partial } : p)),
+    );
+  }
+
+  intOrNull(value: unknown): number | null {
+    if (value === '' || value == null) return null;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 1) return null;
+    return Math.floor(n);
+  }
+
+  positiveInt(value: unknown, fallback: number): number {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 1) return fallback;
+    return Math.floor(n);
   }
 
   onPhasesChange(items: PhasePillItem[]) {
@@ -1015,26 +1111,29 @@ export class TeamPage implements OnInit, OnDestroy {
     this.retroPhases.set(
       items
         .map((item) => byId.get(item.id))
-        .filter((p): p is { phaseId: string; phase: Phase } => !!p),
+        .filter((p): p is RetroPhaseDraft => !!p),
     );
     this.ensureSemaforoItems();
-    this.syncMaxVotesFromPhases();
   }
 
   onPhaseRemoved(id: string) {
     this.retroPhases.set(this.retroPhases().filter((p) => p.phaseId !== id));
+    if (this.selectedPhaseId() === id) this.selectedPhaseId.set(null);
     this.ensureSemaforoItems();
-    this.syncMaxVotesFromPhases();
   }
 
   addRetroPhase(phase: Phase) {
     if (this.retroPhases().some((p) => p.phaseId === phase.id)) return;
     this.retroPhases.set([
       ...this.retroPhases(),
-      { phaseId: phase.id, phase },
+      {
+        phaseId: phase.id,
+        phase,
+        ...limitsFor(phase, this.selectedTemplate()),
+      },
     ]);
+    this.selectedPhaseId.set(phase.id);
     this.ensureSemaforoItems();
-    this.syncMaxVotesFromPhases();
     if (!this.availablePhases().length) this.showAddPhases.set(false);
   }
 
@@ -1129,7 +1228,6 @@ export class TeamPage implements OnInit, OnDestroy {
 
   openCreateModal() {
     this.error.set('');
-    this.allowCrossColumnGrouping = false;
     this.showCreateModal.set(true);
   }
 
@@ -1189,7 +1287,6 @@ export class TeamPage implements OnInit, OnDestroy {
       if (tpl && !this.retroPhases().length) {
         this.seedPhasesFromTemplate(tpl);
         this.seedSemaforoFromTemplate(tpl);
-        this.syncMaxVotesFromPhases();
       }
     });
   }
@@ -1235,21 +1332,31 @@ export class TeamPage implements OnInit, OnDestroy {
         return;
       }
     }
-    const maxVotes = this.hasSingleVotePhase() ? 1 : this.maxVotesPerCard;
     this.api
       .createRetro({
         teamId: team.id,
         templateId: this.templateId,
         title: this.title,
-        maxCommentsPerParticipant: this.maxComments,
-        votesPerParticipant: this.votesPerParticipant,
-        maxVotesPerCard: maxVotes,
         allowAnonymous: this.allowAnonymous,
-        allowCrossColumnGrouping: this.allowCrossColumnGrouping,
-        timerSeconds: this.timerSeconds,
         phases: this.retroPhases().map((p, position) => ({
           phaseId: p.phaseId,
           position,
+          maxCardsPerParticipant: p.phase.allowCreateCards
+            ? p.maxCardsPerParticipant
+            : null,
+          ...(p.phase.voting !== 'off'
+            ? {
+                votesPerParticipant: p.votesPerParticipant,
+                maxVotesPerCard:
+                  p.phase.voting === 'single' ? 1 : p.maxVotesPerCard,
+              }
+            : {}),
+          ...(p.phase.timerSeconds != null
+            ? { timerSeconds: p.timerSeconds }
+            : {}),
+          ...(p.phase.allowGrouping
+            ? { allowCrossColumnGrouping: p.allowCrossColumnGrouping }
+            : {}),
         })),
         ...(this.needsSemaforo()
           ? {

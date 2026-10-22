@@ -364,15 +364,24 @@ export function phaseCapabilities(
   };
 }
 
-/** Resolve max cards for a participant in the current phase. */
+/** Max cards for a participant in this phase. Null means unlimited. */
 export function resolveMaxCards(
   phaseMax: number | null | undefined,
-  retroMax: number | null | undefined,
 ): number | null {
-  if (phaseMax != null) return phaseMax;
-  if (retroMax != null) return retroMax;
-  return null;
+  return phaseMax ?? null;
 }
+
+/** Durations a phase timer can take. "Sin timer" is the absence of a value. */
+export const PHASE_TIMER_PRESETS: { value: number; label: string }[] = [
+  { value: 60, label: '1 min' },
+  { value: 120, label: '2 min' },
+  { value: 180, label: '3 min' },
+  { value: 300, label: '5 min' },
+  { value: 600, label: '10 min' },
+  { value: 900, label: '15 min' },
+  { value: 1200, label: '20 min' },
+  { value: 1800, label: '30 min' },
+];
 
 export const SYSTEM_PHASE_IDS = {
   comments: 'sys_phase_comments',

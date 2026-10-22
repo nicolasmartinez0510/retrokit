@@ -67,6 +67,7 @@ const boardInclude = {
   participants: {
     include: {
       user: { select: userPublicSelect },
+      phaseReadies: true,
     },
   },
   groups: {
@@ -229,11 +230,14 @@ export class RetrosService {
         const hiddenColumnIds = entry.hiddenTemplateColumnIds
           .map((id) => columnIdMap.get(id))
           .filter((id): id is string => !!id);
+        const snap = snapshotPhaseFields(entry.phase);
+        const limits = entry.limits;
         const created = await tx.retroPhase.create({
           data: {
             retroId: retro.id,
             position,
-            ...snapshotPhaseFields(entry.phase),
+            ...snap,
+            ...this.phaseLimitOverrides(snap, template, limits),
             hiddenColumns: {
               create: hiddenColumnIds.map((columnId) => ({ columnId })),
             },
@@ -256,6 +260,56 @@ export class RetrosService {
     });
 
     return { ...board, openActionsReminder };
+  }
+
+  /** Limits stored on the retro's phase snapshot. Never writes the catalog phase. */
+  private phaseLimitOverrides(
+    snap: {
+      voting: string;
+      allowGrouping: boolean;
+      allowCrossColumnGrouping: boolean;
+      maxCardsPerParticipant: number | null;
+      timerSeconds: number | null;
+    },
+    template: {
+      maxCommentsPerParticipant: number | null;
+      votesPerParticipant: number;
+      maxVotesPerCard: number;
+    },
+    limits?: {
+      maxCardsPerParticipant?: number | null;
+      votesPerParticipant?: number;
+      maxVotesPerCard?: number;
+      timerSeconds?: number | null;
+      allowCrossColumnGrouping?: boolean;
+    },
+  ) {
+    const voting = snap.voting;
+    return {
+      maxCardsPerParticipant:
+        limits?.maxCardsPerParticipant !== undefined
+          ? limits.maxCardsPerParticipant
+          : (snap.maxCardsPerParticipant ??
+            template.maxCommentsPerParticipant ??
+            null),
+      votesPerParticipant:
+        voting === 'off'
+          ? null
+          : (limits?.votesPerParticipant ?? template.votesPerParticipant ?? 5),
+      maxVotesPerCard:
+        voting === 'off'
+          ? null
+          : voting === 'single'
+            ? 1
+            : (limits?.maxVotesPerCard ?? template.maxVotesPerCard ?? 2),
+      timerSeconds:
+        snap.timerSeconds == null
+          ? null
+          : (limits?.timerSeconds ?? snap.timerSeconds),
+      allowCrossColumnGrouping: snap.allowGrouping
+        ? (limits?.allowCrossColumnGrouping ?? snap.allowCrossColumnGrouping)
+        : false,
+    };
   }
 
   private async resolvePhasePlan(
@@ -299,9 +353,10 @@ export class RetrosService {
       if (missing.length) {
         throw new NotFoundException(`Phase not found: ${missing.join(', ')}`);
       }
-      return ids.map((id) => ({
-        phase: byId.get(id)!,
-        hiddenTemplateColumnIds: templateHidden.get(id) ?? [],
+      return ordered.map((sel) => ({
+        phase: byId.get(sel.phaseId)!,
+        hiddenTemplateColumnIds: templateHidden.get(sel.phaseId) ?? [],
+        limits: sel,
       }));
     }
 
@@ -309,6 +364,7 @@ export class RetrosService {
       return template.phases.map((tp) => ({
         phase: tp.phase,
         hiddenTemplateColumnIds: tp.hiddenColumns.map((h) => h.columnId),
+        limits: undefined,
       }));
     }
 
@@ -320,6 +376,7 @@ export class RetrosService {
       (id) => ({
         phase: byId.get(id)!,
         hiddenTemplateColumnIds: [] as string[],
+        limits: undefined,
       }),
     );
     if (!plan.length) {
@@ -431,6 +488,58 @@ export class RetrosService {
     return { deleted: true };
   }
 
+  /** Writes limits onto the retro's phase snapshot. Does not touch the catalog. */
+  private async applyPhaseSettings(retroId: string, dto: UpdateSettingsDto) {
+    if (!dto.phaseId) return null;
+    const phase = await this.prisma.retroPhase.findFirst({
+      where: { id: dto.phaseId, retroId },
+    });
+    if (!phase) throw new BadRequestException('Invalid phase');
+
+    const data: Prisma.RetroPhaseUpdateInput = {};
+    if (
+      dto.maxCommentsPerParticipant !== undefined &&
+      phase.allowCreateCards
+    ) {
+      data.maxCardsPerParticipant = dto.maxCommentsPerParticipant;
+    }
+    if (phase.voting !== 'off') {
+      if (dto.votesPerParticipant !== undefined) {
+        data.votesPerParticipant = dto.votesPerParticipant;
+      }
+      if (phase.voting === 'single') {
+        data.maxVotesPerCard = 1;
+      } else if (dto.maxVotesPerCard !== undefined) {
+        data.maxVotesPerCard = dto.maxVotesPerCard;
+      }
+    }
+    if (dto.timerSeconds !== undefined && phase.timerSeconds != null) {
+      data.timerSeconds = dto.timerSeconds;
+    }
+    if (
+      dto.allowCrossColumnGrouping !== undefined &&
+      phase.allowGrouping
+    ) {
+      data.allowCrossColumnGrouping = dto.allowCrossColumnGrouping;
+    }
+    if (!Object.keys(data).length) return phase;
+    return this.prisma.retroPhase.update({ where: { id: phase.id }, data });
+  }
+
+  private async setPhaseReady(
+    participantId: string,
+    retroPhaseId: string,
+    ready: boolean,
+  ) {
+    await this.prisma.participantPhaseReady.upsert({
+      where: {
+        participantId_retroPhaseId: { participantId, retroPhaseId },
+      },
+      create: { participantId, retroPhaseId, ready },
+      update: { ready },
+    });
+  }
+
   async updateSettings(
     user: JwtPayload,
     retroId: string,
@@ -445,35 +554,26 @@ export class RetrosService {
       where: { id: retroId },
       data: {
         ...(title !== undefined && { title }),
-        ...(dto.maxCommentsPerParticipant !== undefined && {
-          maxCommentsPerParticipant: dto.maxCommentsPerParticipant,
-        }),
-        ...(dto.votesPerParticipant !== undefined && {
-          votesPerParticipant: dto.votesPerParticipant,
-        }),
-        ...(dto.maxVotesPerCard !== undefined && {
-          maxVotesPerCard: dto.maxVotesPerCard,
-        }),
         ...(dto.allowAnonymous !== undefined && {
           allowAnonymous: dto.allowAnonymous,
-        }),
-        ...(dto.allowCrossColumnGrouping !== undefined && {
-          allowCrossColumnGrouping: dto.allowCrossColumnGrouping,
-        }),
-        ...(dto.timerSeconds !== undefined && {
-          timerSeconds: dto.timerSeconds,
         }),
       },
     });
 
+    const phaseSettings = await this.applyPhaseSettings(retroId, dto);
+
     this.events.emit(retroId, 'settings-changed', {
       title: updated.title,
       maxCommentsPerParticipant: updated.maxCommentsPerParticipant,
-      votesPerParticipant: updated.votesPerParticipant,
-      maxVotesPerCard: updated.maxVotesPerCard,
+      votesPerParticipant:
+        phaseSettings?.votesPerParticipant ?? updated.votesPerParticipant,
+      maxVotesPerCard:
+        phaseSettings?.maxVotesPerCard ?? updated.maxVotesPerCard,
       allowAnonymous: updated.allowAnonymous,
-      allowCrossColumnGrouping: updated.allowCrossColumnGrouping,
-      timerSeconds: updated.timerSeconds,
+      allowCrossColumnGrouping:
+        phaseSettings?.allowCrossColumnGrouping ??
+        updated.allowCrossColumnGrouping,
+      timerSeconds: phaseSettings?.timerSeconds ?? updated.timerSeconds,
       timerEndsAt: updated.timerEndsAt,
     });
 
@@ -563,16 +663,8 @@ export class RetrosService {
       throw new BadRequestException('Column is hidden in this phase');
     }
 
-    const maxCards = resolveMaxCards(
-      caps.maxCardsPerParticipant,
-      retro.maxCommentsPerParticipant,
-    );
-    const cardCountWhere = this.cardQuotaWhere(
-      retroId,
-      participant.id,
-      phase,
-      caps,
-    );
+    const maxCards = resolveMaxCards(phase.maxCardsPerParticipant);
+    const cardCountWhere = this.cardQuotaWhere(retroId, participant.id, phase.id);
     if (maxCards != null) {
       const count = await this.prisma.card.count({ where: cardCountWhere });
       if (count >= maxCards) {
@@ -628,11 +720,18 @@ export class RetrosService {
         const newCount = await this.prisma.card.count({
           where: cardCountWhere,
         });
-        if (newCount >= maxCards && !participant.commentsReady) {
-          await this.prisma.participant.update({
-            where: { id: participant.id },
-            data: { commentsReady: true },
-          });
+        const alreadyReady = await this.prisma.participantPhaseReady.findUnique(
+          {
+            where: {
+              participantId_retroPhaseId: {
+                participantId: participant.id,
+                retroPhaseId: phase.id,
+              },
+            },
+          },
+        );
+        if (newCount >= maxCards && !alreadyReady?.ready) {
+          await this.setPhaseReady(participant.id, phase.id, true);
           this.events.emit(retroId, 'comments-ready-changed', {
             participantId: participant.id,
             ready: true,
@@ -666,79 +765,60 @@ export class RetrosService {
       );
     }
 
-    if (caps.kind === 'semaforo') {
-      const updated = await this.prisma.participant.update({
-        where: { id: participant.id },
-        data: { semaforoReady: ready },
-      });
-      this.events.emit(retroId, 'semaforo-ready-changed', {
-        participantId: participant.id,
-        ready,
-      });
-      return { semaforoReady: updated.semaforoReady };
-    }
-
-    if (caps.voting !== 'off') {
-      const maxVotesPerCard = this.effectiveMaxVotesPerCard(retro, caps);
-      if (!ready) {
-        await this.collapseGroupedCardVotes(retroId, maxVotesPerCard);
-        const [myVotes, groupedCards] = await Promise.all([
-          this.prisma.vote.findMany({
-            where: { retroId, participantId: participant.id },
-          }),
-          this.prisma.card.findMany({
-            where: { retroId, groupId: { not: null } },
-            select: { id: true },
-          }),
-        ]);
-        const groupedCardIds = new Set(groupedCards.map((c) => c.id));
-        const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
-        if (myVoteTotal >= retro.votesPerParticipant) {
-          throw new BadRequestException(
-            'Cannot unready when vote limit is reached',
-          );
-        }
-      }
-
-      const updated = await this.prisma.participant.update({
-        where: { id: participant.id },
-        data: { votesReady: ready },
-      });
-
-      this.events.emit(retroId, 'votes-ready-changed', {
-        participantId: participant.id,
-        ready,
-      });
-
-      return { votesReady: updated.votesReady };
-    }
-
-    const maxCards = resolveMaxCards(
-      caps.maxCardsPerParticipant,
-      retro.maxCommentsPerParticipant,
-    );
-    if (!ready && maxCards != null && caps.allowCreateCards) {
-      const count = await this.prisma.card.count({
-        where: this.cardQuotaWhere(retroId, participant.id, phase, caps),
-      });
-      if (count >= maxCards) {
+    if (caps.voting !== 'off' && !ready) {
+      const maxVotesPerCard = this.effectiveMaxVotesPerCard(phase);
+      await this.collapseGroupedCardVotes(retroId, maxVotesPerCard);
+      const [myVotes, groupedCards] = await Promise.all([
+        this.prisma.vote.findMany({
+          where: {
+            retroId,
+            participantId: participant.id,
+            retroPhaseId: phase.id,
+          },
+        }),
+        this.prisma.card.findMany({
+          where: { retroId, groupId: { not: null } },
+          select: { id: true },
+        }),
+      ]);
+      const groupedCardIds = new Set(groupedCards.map((c) => c.id));
+      const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
+      const budget = phase.votesPerParticipant ?? 0;
+      if (myVoteTotal >= budget) {
         throw new BadRequestException(
-          'Cannot unready when comment limit is reached',
+          'Cannot unready when vote limit is reached',
         );
       }
     }
 
-    const updated = await this.prisma.participant.update({
-      where: { id: participant.id },
-      data: { commentsReady: ready },
-    });
+    if (caps.voting === 'off' && caps.kind !== 'semaforo' && !ready) {
+      const maxCards = resolveMaxCards(phase.maxCardsPerParticipant);
+      if (maxCards != null && caps.allowCreateCards) {
+        const count = await this.prisma.card.count({
+          where: this.cardQuotaWhere(retroId, participant.id, phase.id),
+        });
+        if (count >= maxCards) {
+          throw new BadRequestException(
+            'Cannot unready when comment limit is reached',
+          );
+        }
+      }
+    }
 
-    this.events.emit(retroId, 'comments-ready-changed', {
+    await this.setPhaseReady(participant.id, phase.id, ready);
+    const event =
+      caps.kind === 'semaforo'
+        ? 'semaforo-ready-changed'
+        : caps.voting !== 'off'
+          ? 'votes-ready-changed'
+          : 'comments-ready-changed';
+    this.events.emit(retroId, event, {
       participantId: participant.id,
       ready,
     });
-
-    return { commentsReady: updated.commentsReady };
+    if (caps.kind === 'semaforo') return { semaforoReady: ready };
+    if (caps.voting !== 'off') return { votesReady: ready };
+    return { commentsReady: ready };
   }
 
   async updateCard(
@@ -955,7 +1035,7 @@ export class RetrosService {
     }
 
     this.assertSameColumnUnlessAllowed(
-      this.groupingRules(retro, caps),
+      this.groupingRules(caps),
       source.columnId,
       target.columnId,
     );
@@ -1075,7 +1155,7 @@ export class RetrosService {
     }
 
     this.assertSameColumnUnlessAllowed(
-      this.groupingRules(retro, caps),
+      this.groupingRules(caps),
       card.columnId,
       destColumnId,
     );
@@ -1144,7 +1224,7 @@ export class RetrosService {
 
   async setVote(user: JwtPayload, retroId: string, dto: VoteDto) {
     const retro = await this.getRetroOrThrow(retroId);
-    const { caps } = await this.currentPhaseCaps(retro);
+    const { phase, caps } = await this.currentPhaseCaps(retro);
     if (caps.voting === 'off') {
       throw new BadRequestException(
         'Voting is not allowed in the current phase',
@@ -1157,7 +1237,8 @@ export class RetrosService {
       throw new BadRequestException('Provide either cardId or groupId');
     }
 
-    const maxVotesPerCard = this.effectiveMaxVotesPerCard(retro, caps);
+    const maxVotesPerCard = this.effectiveMaxVotesPerCard(phase);
+    const voteBudget = phase.votesPerParticipant ?? 0;
     if (caps.voting === 'single' && dto.count > 1) {
       throw new BadRequestException(
         'Only one vote per card/group in this phase',
@@ -1195,6 +1276,7 @@ export class RetrosService {
     const existing = await this.prisma.vote.findFirst({
       where: {
         participantId: participant.id,
+        retroPhaseId: phase.id,
         ...(dto.cardId ? { cardId: dto.cardId } : { groupId: dto.groupId }),
       },
     });
@@ -1204,6 +1286,7 @@ export class RetrosService {
         where: {
           retroId,
           participantId: participant.id,
+          retroPhaseId: phase.id,
           ...(existing ? { NOT: { id: existing.id } } : {}),
         },
       }),
@@ -1214,7 +1297,7 @@ export class RetrosService {
     ]);
     const groupedCardIds = new Set(groupedCards.map((c) => c.id));
     const otherTotal = this.quotaVoteTotal(otherVotes, groupedCardIds);
-    if (otherTotal + dto.count > retro.votesPerParticipant) {
+    if (otherTotal + dto.count > voteBudget) {
       throw new BadRequestException('Vote limit exceeded');
     }
 
@@ -1231,6 +1314,7 @@ export class RetrosService {
       await this.prisma.vote.create({
         data: {
           retroId,
+          retroPhaseId: phase.id,
           participantId: participant.id,
           cardId: dto.cardId ?? null,
           groupId: dto.groupId ?? null,
@@ -1240,14 +1324,23 @@ export class RetrosService {
     }
 
     const myVotes = await this.prisma.vote.findMany({
-      where: { retroId, participantId: participant.id },
+      where: {
+        retroId,
+        participantId: participant.id,
+        retroPhaseId: phase.id,
+      },
     });
     const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
-    if (myVoteTotal >= retro.votesPerParticipant && !participant.votesReady) {
-      await this.prisma.participant.update({
-        where: { id: participant.id },
-        data: { votesReady: true },
-      });
+    const alreadyReady = await this.prisma.participantPhaseReady.findUnique({
+      where: {
+        participantId_retroPhaseId: {
+          participantId: participant.id,
+          retroPhaseId: phase.id,
+        },
+      },
+    });
+    if (myVoteTotal >= voteBudget && voteBudget > 0 && !alreadyReady?.ready) {
+      await this.setPhaseReady(participant.id, phase.id, true);
       this.events.emit(retroId, 'votes-ready-changed', {
         participantId: participant.id,
         ready: true,
@@ -1401,11 +1494,19 @@ export class RetrosService {
   async startTimer(user: JwtPayload, retroId: string, dto: TimerDto) {
     await this.assertFacilitatorOfRetro(user, retroId);
     const retro = await this.getRetroOrThrow(retroId);
-    const seconds = dto.seconds ?? retro.timerSeconds;
+    const { phase } = await this.currentPhaseCaps(retro);
+    if (phase.timerSeconds == null) {
+      throw new BadRequestException('This phase has no timer');
+    }
+    const seconds = dto.seconds ?? phase.timerSeconds;
     if (!seconds || seconds < 1) {
       throw new BadRequestException('Timer seconds required');
     }
 
+    await this.prisma.retroPhase.update({
+      where: { id: phase.id },
+      data: { timerSeconds: seconds },
+    });
     const timerEndsAt = new Date(Date.now() + seconds * 1000);
     const updated = await this.prisma.retrospective.update({
       where: { id: retroId },
@@ -1670,14 +1771,16 @@ export class RetrosService {
       ? retro.columns.filter((c) => !hiddenColumnIds.has(c.id))
       : retro.columns;
 
-    const participantById = new Map(retro.participants.map((p) => [p.id, p]));
-    const readyForReveal = (authorId: string) => {
-      const author = participantById.get(authorId);
-      if (!author || !caps) return false;
-      if (caps.kind === 'semaforo') return author.semaforoReady;
-      if (caps.voting !== 'off') return author.votesReady;
-      return author.commentsReady;
-    };
+    const readyIds = new Set(
+      retro.participants
+        .filter((p) =>
+          p.phaseReadies.some(
+            (row) => row.retroPhaseId === currentPhase?.id && row.ready,
+          ),
+        )
+        .map((p) => p.id),
+    );
+    const readyForReveal = (authorId: string) => readyIds.has(authorId);
 
     // Others' cards may be visible, blurred or hidden depending on the phase.
     const othersVisibility =
@@ -1746,20 +1849,31 @@ export class RetrosService {
     const groupedCardIds = new Set(
       retro.cards.filter((c) => c.groupId).map((c) => c.id),
     );
+    const phaseId = currentPhase?.id;
+    const inThisPhase = <T extends { retroPhaseId: string }>(votes: T[]) =>
+      phaseId ? votes.filter((v) => v.retroPhaseId === phaseId) : [];
     const myCommentCount = participant
-      ? retro.cards.filter((c) => c.authorId === participant.id).length
+      ? retro.cards.filter(
+          (c) => c.authorId === participant.id && c.createdInPhaseId === phaseId,
+        ).length
       : 0;
     const myVotes = participant
-      ? retro.votes.filter((v) => v.participantId === participant.id)
+      ? inThisPhase(
+          retro.votes.filter((v) => v.participantId === participant.id),
+        )
       : [];
     const myVoteTotal = this.quotaVoteTotal(myVotes, groupedCardIds);
+    const votesPerPerson =
+      currentPhase && currentPhase.voting !== 'off'
+        ? (currentPhase.votesPerParticipant ?? 0)
+        : 0;
 
     const participantName = (p: (typeof retro.participants)[number]) =>
       p.guestName ?? p.user?.name ?? (p.isGuest ? 'Invitado' : 'Participante');
 
     const commentProgress = retro.participants.map((p) => {
       const commentCount = retro.cards.filter(
-        (c) => c.authorId === p.id,
+        (c) => c.authorId === p.id && c.createdInPhaseId === phaseId,
       ).length;
       return {
         participantId: p.id,
@@ -1767,14 +1881,14 @@ export class RetrosService {
         avatarId: resolveParticipantAvatar(p),
         ownerId: p.user?.id ?? p.id,
         commentCount,
-        isReady: p.commentsReady,
+        isReady: readyIds.has(p.id),
       };
     });
     const readyCount = commentProgress.filter((p) => p.isReady).length;
 
     const voteProgressParticipants = retro.participants.map((p) => {
       const voteCount = this.quotaVoteTotal(
-        retro.votes.filter((v) => v.participantId === p.id),
+        inThisPhase(retro.votes.filter((v) => v.participantId === p.id)),
         groupedCardIds,
       );
       return {
@@ -1783,7 +1897,7 @@ export class RetrosService {
         avatarId: resolveParticipantAvatar(p),
         ownerId: p.user?.id ?? p.id,
         voteCount,
-        isReady: p.votesReady,
+        isReady: readyIds.has(p.id),
       };
     });
     const votesReadyCount = voteProgressParticipants.filter(
@@ -1793,8 +1907,7 @@ export class RetrosService {
       (s, p) => s + p.voteCount,
       0,
     );
-    const votesCapacity =
-      voteProgressParticipants.length * retro.votesPerParticipant;
+    const votesCapacity = voteProgressParticipants.length * votesPerPerson;
 
     const semaforoProgressParticipants = retro.participants.map((p) => ({
       participantId: p.id,
@@ -1803,7 +1916,7 @@ export class RetrosService {
       ownerId: p.user?.id ?? p.id,
       voteCount: retro.semaforoVotes.filter((v) => v.participantId === p.id)
         .length,
-      isReady: p.semaforoReady,
+      isReady: readyIds.has(p.id),
     }));
     const semaforoReadyCount = semaforoProgressParticipants.filter(
       (p) => p.isReady,
@@ -1839,7 +1952,7 @@ export class RetrosService {
       phases,
       columns,
       voteCountsHidden: hideCounts,
-      participants: retro.participants.map((p) => ({
+      participants: retro.participants.map(({ phaseReadies: _ready, ...p }) => ({
         ...p,
         avatarId: resolveParticipantAvatar(p),
         user: p.user
@@ -1888,10 +2001,10 @@ export class RetrosService {
         participantId: participant?.id,
         myCommentCount,
         myVoteTotal,
-        votesRemaining: Math.max(0, retro.votesPerParticipant - myVoteTotal),
-        commentsReady: participant?.commentsReady ?? false,
-        votesReady: participant?.votesReady ?? false,
-        semaforoReady: participant?.semaforoReady ?? false,
+        votesRemaining: Math.max(0, votesPerPerson - myVoteTotal),
+        commentsReady: participant ? readyIds.has(participant.id) : false,
+        votesReady: participant ? readyIds.has(participant.id) : false,
+        semaforoReady: participant ? readyIds.has(participant.id) : false,
         isFacilitator: facilitator,
       },
     };
@@ -1970,35 +2083,26 @@ export class RetrosService {
     }
   }
 
-  /** Where-clause counting the cards that consume a participant's quota. */
+  /** Cards created in this phase are the only ones that consume its quota. */
   private cardQuotaWhere(
     retroId: string,
     participantId: string,
-    phase: RetroPhaseRecord,
-    caps: EffectiveCaps,
+    phaseId: string,
   ): Prisma.CardWhereInput {
-    // A per-phase limit counts only cards created in this phase; the retro-wide
-    // limit counts every card of the participant.
-    if (caps.maxCardsPerParticipant != null) {
-      return { retroId, authorId: participantId, createdInPhaseId: phase.id };
-    }
-    return { retroId, authorId: participantId };
+    return { retroId, authorId: participantId, createdInPhaseId: phaseId };
   }
 
-  private effectiveMaxVotesPerCard(
-    retro: { maxVotesPerCard: number },
-    caps: EffectiveCaps,
-  ) {
-    return caps.voting === 'single' ? 1 : retro.maxVotesPerCard;
+  private effectiveMaxVotesPerCard(phase: {
+    voting: string;
+    maxVotesPerCard: number | null;
+  }) {
+    if (phase.voting === 'single') return 1;
+    return phase.maxVotesPerCard ?? 1;
   }
 
-  private groupingRules(
-    retro: { allowCrossColumnGrouping: boolean },
-    caps: EffectiveCaps,
-  ) {
+  private groupingRules(caps: EffectiveCaps) {
     return {
-      allowCrossColumnGrouping:
-        retro.allowCrossColumnGrouping || caps.allowCrossColumnGrouping,
+      allowCrossColumnGrouping: caps.allowCrossColumnGrouping,
     };
   }
 
@@ -2174,6 +2278,27 @@ export class RetrosService {
     return true;
   }
 
+  /** Cap that applied in the phase where the vote was cast, not the phase we're in now. */
+  private async capForPhase(
+    tx: Prisma.TransactionClient,
+    retroPhaseId: string,
+    fallback: number,
+    cache: Map<string, number>,
+  ) {
+    const hit = cache.get(retroPhaseId);
+    if (hit != null) return hit;
+    const phase = await tx.retroPhase.findUnique({
+      where: { id: retroPhaseId },
+      select: { voting: true, maxVotesPerCard: true },
+    });
+    const cap =
+      phase?.voting === 'single'
+        ? 1
+        : (phase?.maxVotesPerCard ?? fallback);
+    cache.set(retroPhaseId, cap);
+    return cap;
+  }
+
   private async migrateCardVotesToGroup(
     tx: Prisma.TransactionClient,
     retroId: string,
@@ -2187,22 +2312,24 @@ export class RetrosService {
     });
     if (!cardVotes.length) return;
 
-    const byParticipant = new Map<string, typeof cardVotes>();
+    const byPhase = new Map<string, typeof cardVotes>();
     for (const vote of cardVotes) {
-      const list = byParticipant.get(vote.participantId) ?? [];
+      const key = `${vote.participantId}:${vote.retroPhaseId}`;
+      const list = byPhase.get(key) ?? [];
       list.push(vote);
-      byParticipant.set(vote.participantId, list);
+      byPhase.set(key, list);
     }
 
-    for (const [participantId, votes] of byParticipant) {
+    const cache = new Map<string, number>();
+    for (const votes of byPhase.values()) {
+      const participantId = votes[0].participantId;
+      const retroPhaseId = votes[0].retroPhaseId;
+      const cap = await this.capForPhase(tx, retroPhaseId, maxVotesPerCard, cache);
       const migrated = Math.max(...votes.map((v) => v.count));
       const existing = await tx.vote.findFirst({
-        where: { participantId, groupId },
+        where: { participantId, groupId, retroPhaseId },
       });
-      const next = Math.min(
-        maxVotesPerCard,
-        Math.max(migrated, existing?.count ?? 0),
-      );
+      const next = Math.min(cap, Math.max(migrated, existing?.count ?? 0));
       await tx.vote.deleteMany({
         where: { id: { in: votes.map((v) => v.id) } },
       });
@@ -2221,6 +2348,7 @@ export class RetrosService {
         await tx.vote.create({
           data: {
             retroId,
+            retroPhaseId,
             participantId,
             groupId,
             cardId: null,
@@ -2241,14 +2369,22 @@ export class RetrosService {
     const fromVotes = await tx.vote.findMany({
       where: { groupId: fromGroupId },
     });
+    const cache = new Map<string, number>();
     for (const vote of fromVotes) {
-      const existing = await tx.vote.findFirst({
-        where: { participantId: vote.participantId, groupId: toGroupId },
-      });
-      const next = Math.min(
+      const cap = await this.capForPhase(
+        tx,
+        vote.retroPhaseId,
         maxVotesPerCard,
-        Math.max(vote.count, existing?.count ?? 0),
+        cache,
       );
+      const existing = await tx.vote.findFirst({
+        where: {
+          participantId: vote.participantId,
+          groupId: toGroupId,
+          retroPhaseId: vote.retroPhaseId,
+        },
+      });
+      const next = Math.min(cap, Math.max(vote.count, existing?.count ?? 0));
       if (existing) {
         await tx.vote.update({
           where: { id: existing.id },
@@ -2273,14 +2409,22 @@ export class RetrosService {
     maxVotesPerCard: number,
   ) {
     const groupVotes = await tx.vote.findMany({ where: { groupId } });
+    const cache = new Map<string, number>();
     for (const vote of groupVotes) {
-      const existing = await tx.vote.findFirst({
-        where: { participantId: vote.participantId, cardId },
-      });
-      const next = Math.min(
+      const cap = await this.capForPhase(
+        tx,
+        vote.retroPhaseId,
         maxVotesPerCard,
-        Math.max(vote.count, existing?.count ?? 0),
+        cache,
       );
+      const existing = await tx.vote.findFirst({
+        where: {
+          participantId: vote.participantId,
+          cardId,
+          retroPhaseId: vote.retroPhaseId,
+        },
+      });
+      const next = Math.min(cap, Math.max(vote.count, existing?.count ?? 0));
       if (existing) {
         await tx.vote.update({
           where: { id: existing.id },

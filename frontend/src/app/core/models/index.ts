@@ -281,6 +281,7 @@ export interface Participant {
 export interface Vote {
   id: string;
   retroId: string;
+  retroPhaseId?: string;
   participantId: string;
   cardId?: string | null;
   groupId?: string | null;
@@ -477,6 +478,9 @@ export interface RetroPhase extends PhaseCapabilities {
   instructions?: string | null;
   timerSeconds?: number | null;
   hiddenColumnIds?: string[];
+  /** Vote budget for this phase. Absent when the phase does not vote. */
+  votesPerParticipant?: number | null;
+  maxVotesPerCard?: number | null;
   capabilities?: PhaseCapabilities & { kind?: PhaseKind; closed?: boolean };
 }
 
@@ -549,7 +553,15 @@ export interface CreateRetroPayload {
   allowAnonymous?: boolean;
   allowCrossColumnGrouping?: boolean;
   timerSeconds?: number | null;
-  phases?: { phaseId: string; position: number }[];
+  phases?: {
+    phaseId: string;
+    position: number;
+    maxCardsPerParticipant?: number | null;
+    votesPerParticipant?: number;
+    maxVotesPerCard?: number;
+    timerSeconds?: number | null;
+    allowCrossColumnGrouping?: boolean;
+  }[];
   semaforoItems?: SemaforoItemInput[];
 }
 

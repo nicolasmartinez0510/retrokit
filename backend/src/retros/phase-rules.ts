@@ -364,14 +364,11 @@ export function phaseCapabilities(
   };
 }
 
-/** Resolve max cards for a participant in the current phase. */
+/** Max cards for a participant in this phase. Null means unlimited. */
 export function resolveMaxCards(
   phaseMax: number | null | undefined,
-  retroMax: number | null | undefined,
 ): number | null {
-  if (phaseMax != null) return phaseMax;
-  if (retroMax != null) return retroMax;
-  return null;
+  return phaseMax ?? null;
 }
 
 export const SYSTEM_PHASE_IDS = {

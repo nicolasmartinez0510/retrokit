@@ -307,10 +307,16 @@ model RetroPhase {
   allowActionItems         Boolean                   @default(false)
   showReadyCheck           Boolean                   @default(true)
   defaultSort              CardSort                  @default(original)
+  /// Cupo de votos de esta fase. Null si la fase no vota.
+  votesPerParticipant      Int?
+  /// Tope por tarjeta en esta fase. 1 si el voto es único. Null si no vota.
+  maxVotesPerCard          Int?
   retro                    Retrospective             @relation("RetroPhases", fields: [retroId], references: [id], onDelete: Cascade)
   currentFor               Retrospective?            @relation("CurrentPhase")
   hiddenColumns            RetroPhaseHiddenColumn[]
   cards                    Card[]
+  votes                    Vote[]
+  readies                  ParticipantPhaseReady[]
 
   @@index([retroId, position])
 }
@@ -354,8 +360,19 @@ model Participant {
   reactions      CardReaction[]
   rotiResponses  RotiResponse[]
   semaforoVotes  SemaforoVote[]
+  phaseReadies   ParticipantPhaseReady[]
 
   @@index([retroId, userId])
+}
+
+model ParticipantPhaseReady {
+  participantId String
+  retroPhaseId  String
+  ready         Boolean     @default(false)
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  retroPhase    RetroPhase  @relation(fields: [retroPhaseId], references: [id], onDelete: Cascade)
+
+  @@id([participantId, retroPhaseId])
 }
 
 model Card {
@@ -393,17 +410,20 @@ model CardGroup {
 model Vote {
   id            String        @id @default(cuid())
   retroId       String
+  retroPhaseId  String
   participantId String
   cardId        String?
   groupId       String?
   count         Int           @default(1)
   retro         Retrospective @relation(fields: [retroId], references: [id], onDelete: Cascade)
+  retroPhase    RetroPhase    @relation(fields: [retroPhaseId], references: [id], onDelete: Cascade)
   participant   Participant   @relation(fields: [participantId], references: [id], onDelete: Cascade)
   card          Card?         @relation(fields: [cardId], references: [id], onDelete: Cascade)
   group         CardGroup?    @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
-  @@unique([participantId, cardId])
-  @@unique([participantId, groupId])
+  @@unique([participantId, cardId, retroPhaseId])
+  @@unique([participantId, groupId, retroPhaseId])
+  @@index([retroPhaseId])
 }
 
 model CardReaction {

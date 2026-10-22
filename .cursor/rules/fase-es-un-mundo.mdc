@@ -1,0 +1,30 @@
+---
+description: Cada fase de la retro es un mundo propio; lo nuevo se guarda en su estado
+alwaysApply: true
+---
+
+# La retro es un conjunto de fases
+
+Una retrospectiva no es un flujo único. Es un conjunto de fases. Cada fase tiene su propio estado y no depende de las otras para funcionar.
+
+Quien arma la retro decide el orden y si una fase tiene sentido después de otra (votar supone que hay tarjetas; presentar las más votadas supone que se votó). El producto no impone esa secuencia. El trabajo es dar la máxima personalización.
+
+## Al agregar comportamiento
+
+- El ajuste, el cupo y el dato nuevo viven en la fase: en el catálogo (`Phase`) como definición y en el snapshot de la retro (`RetroPhase`) como estado de esa retro.
+- Contar, limitar y mostrar "lo de esta fase" usa solo el estado de esa fase. No sumar actividad de otras fases para decidir un cupo.
+- Crear la retro o editar sus ajustes no modifica la fase del catálogo ni la plantilla. Cambia el snapshot de esa retro.
+- No agregar configuraciones de toda la retro que las fases hereden o que cuenten lo hecho en otras fases.
+
+El estado de una fase sí puede compartirse hacia afuera cuando otra fase necesita mostrar lo que ya pasó. El cupo sigue siendo de cada fase; lo compartido es el resultado.
+
+```text
+Mal: máx. de comentarios en la retro, contando todas las tarjetas de la persona.
+Bien: máx. de tarjetas en la fase, contando solo las creadas en esa fase.
+
+Mal: un timer para toda la retro.
+Bien: timer de la fase; si no tiene, no se muestra. Editarlo en la retro no cambia el catálogo.
+
+Votos: cada fase de votación tiene su cupo (0/4 y 0/2).
+El total de la tarjeta suma los votos de todas las fases, y la fase que presenta las más votadas muestra esa suma.
+```
